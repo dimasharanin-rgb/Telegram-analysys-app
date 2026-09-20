@@ -84,11 +84,20 @@ async function runToReport(page: Page): Promise<void> {
   });
 }
 
-/** Everything the application sent to the provider, read back from the mock. */
+/**
+ * Everything the application sent to the provider, read back from the mock.
+ *
+ * The mock lives for the whole run, across both viewport projects, so tests
+ * measure what *they* caused rather than the absolute total.
+ */
 async function providerRequests(page: Page): Promise<string[]> {
   const response = await page.request.get(`${MOCK_URL}${CAPTURE_PATH}`);
   const body = (await response.json()) as { requests: string[] };
   return body.requests;
+}
+
+async function providerRequestCount(page: Page): Promise<number> {
+  return (await providerRequests(page)).length;
 }
 
 /* -------------------------------------------------------------------------
@@ -109,6 +118,7 @@ test("landing page leads into the flow", async ({ page }) => {
 });
 
 test("import computes statistics in the browser", async ({ page }) => {
+  const before = await providerRequestCount(page);
   await importFixture(page);
 
   // Parsed participants and a date range, from the file alone.
@@ -117,7 +127,7 @@ test("import computes statistics in the browser", async ({ page }) => {
   await expect(page.getByText(TOTAL_MESSAGES).first()).toBeVisible();
 
   // Nothing has reached the provider at this point.
-  expect(await providerRequests(page)).toHaveLength(0);
+  expect(await providerRequestCount(page)).toBe(before);
 });
 
 test("changing the conversation gap changes the statistics", async ({ page }) => {
@@ -131,6 +141,7 @@ test("changing the conversation gap changes the statistics", async ({ page }) =>
 });
 
 test("an analysis cannot run until the other participant agrees", async ({ page }) => {
+  const before = await providerRequestCount(page);
   await prepareAnalysis(page);
 
   await expect(page.getByText("Waiting for participant consent")).toBeVisible();
@@ -144,11 +155,11 @@ test("an analysis cannot run until the other participant agrees", async ({ page 
   await expect(page.getByRole("button", { name: "Run the analysis" })).toHaveCount(0);
 
   // The decline is a decision, not a failure: nothing was sent for analysis.
-  expect(await providerRequests(page)).toHaveLength(0);
+  expect(await providerRequestCount(page)).toBe(before);
 });
 
 test("consent, run, report, evidence and PDF", async ({ page }) => {
-  const before = (await providerRequests(page)).length;
+  const before = await providerRequestCount(page);
   await prepareAnalysis(page);
 
   const link = await requestConsentLink(page);

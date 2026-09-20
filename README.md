@@ -3,12 +3,14 @@
 Turns a Telegram Desktop JSON export into communication statistics and
 evidence-backed insights.
 
-The product loop is deliberately narrow: **import → understand → analyze →
-explain → show evidence → summarize.** Statistics are computed exactly, on the
-user's device. The AI describes patterns in the conversation and is never
-allowed to assess the people in it.
+The product loop: **import → understand → ask everyone in the conversation →
+analyze → explain → show evidence → summarize.** Statistics are computed
+exactly, on the user's device. The AI describes patterns in the conversation
+and is never allowed to assess the people in it. Before any of it runs, every
+other participant is asked, with a link of their own that they can also use to
+withdraw.
 
-Text-only MVP. Media is recognised, counted and left unanalysed.
+Text-only. Media is recognised, counted and left unanalysed.
 
 ---
 
@@ -20,8 +22,19 @@ cp .env.example .env.local     # add your ANTHROPIC_API_KEY
 npm run dev                    # http://localhost:3000
 ```
 
-`ANTHROPIC_API_KEY` is the only required variable. It is read server-side only;
-nothing under `src/lib/ai/` is ever imported into a client bundle.
+On Windows, `cp` is not a command — use `copy .env.example .env.local` in
+`cmd`, or `Copy-Item .env.example .env.local` in PowerShell. If `npm` itself is
+not recognised, Node is not installed or not on `PATH`; install it from
+[nodejs.org](https://nodejs.org) (20.9 or newer) and open a new terminal.
+
+`ANTHROPIC_API_KEY` is the only variable you need to get started. It is read
+server-side only; nothing under `src/lib/ai/` is ever imported into a client
+bundle. In production `APP_SECRET` is required too — it signs the identity
+cookie, and the application refuses to start without it.
+
+The database is a SQLite file created on first use at `data/app.db`. There is
+no migration step to run: schema changes are applied on connect and recorded,
+so starting the application is enough.
 
 ```bash
 npm run verify     # typecheck + lint + unit tests + production build
@@ -43,9 +56,11 @@ This is the part worth being precise about.
 | Stage | Runs where | Sees what |
 |---|---|---|
 | Parsing the export | Browser (web worker) | The whole file |
-| Every statistic in the Stats tab | Browser (web worker) | Every message |
-| AI analysis | Server → Anthropic | A statistics digest + selected excerpts |
-| PDF report | Server (pdfkit) | Aggregates only, no message text |
+| Every statistic | Browser (web worker) | Every message |
+| Preparing an analysis | Server (SQLite) | A statistics digest + selected excerpts |
+| AI analysis | Server → Anthropic | The same digest and excerpts |
+| After the run | Server (SQLite) | Only the exchanges the report quotes |
+| PDF report | Server (pdfkit) | Aggregates, the written sections, a few quoted exchanges |
 
 The export file itself is never uploaded. Before anything leaves the browser,
 participants are pseudonymised: Claude sees `Participant A` and `Participant B`,
@@ -54,9 +69,18 @@ and the UI substitutes the real display names back in when rendering
 written, so names written inside messages are included — the consent screen
 says so rather than claiming otherwise.
 
-Nothing is persisted. There is no database, no account, and no shareable URL:
-results live in the browser tab until it is closed. Sharing means the PDF, the
-Web Share API, or a copied text summary.
+An analysis is prepared before it runs, because the other participants have to
+be asked first and that takes as long as it takes. So the digest and the
+selected excerpts are stored while it waits. The moment the run finishes, the
+excerpts are pruned to the exchanges the report actually quotes as evidence,
+and the rest are deleted (`pruneInputToEvidence` in
+`src/server/analysis/job-service.ts`, pinned by a test).
+
+There is no account: every row is stamped with an owner id carried in a signed,
+HTTP-only cookie, and every query filters by it. There is no shareable URL —
+nothing about a conversation is published. Sharing means the PDF, the Web Share
+API, or a copied text summary. Deleting an analysis removes its statistics,
+report and excerpts.
 
 The server logs the shape of a run (message counts, call counts, token usage)
 and never message content or credentials — see `src/lib/logger.ts`, which
@@ -71,23 +95,77 @@ Telegram export
    ↓  src/lib/telegram/parser.ts          robust, never assumes a field exists
 normalized messages                        src/lib/model/message.ts
    ↓  src/lib/stats/                      exact arithmetic, no model involved
+   ↓  src/lib/stats/advanced.ts           double texts, bursts, reciprocity, lexicon
 local statistics
    ↓  src/lib/analysis/segmentation.ts    conversation boundaries
 segments
    ↓  src/lib/pipeline/excerpts.ts        what is worth sending, and no more
 excerpts + statistics digest
-   ↓  POST /api/analyze                   server-side key, Zod-validated input
-   ↓  src/lib/pipeline/strategy.ts        single pass, or map/reduce over chunks
+   ↓  POST /api/conversations             pseudonymised; the file stays put
+   ↓  POST /api/jobs                      an analysis job, waiting on its gates
+      ├─ consent   src/server/consent/    every other participant, by link
+      └─ payment   src/server/payments/   a credit, from a signed event only
+   ↓  POST /api/jobs/:id/run              both gates re-checked here, not trusted
+   ↓  src/lib/pipeline/modular.ts         base pass + the product's modules
    ↓  src/lib/ai/claude.ts                structured output + repair retry
 structured analysis
    ↓  validation + evidence pruning       src/lib/ai/schema.ts
-   ↓  src/lib/client/insights.ts          flashcard deck
+   ↓  excerpts pruned to quoted evidence  src/server/analysis/job-service.ts
+   ↓  src/lib/client/insights.ts          flashcard deck, tabs, PDF
 UI
 ```
 
-Everything above the API boundary runs in a web worker
+Parsing and every statistic run in a web worker
 (`src/workers/import.worker.ts`), with a main-thread fallback, so a 50 MB
 export does not freeze the tab.
+
+### The two gates
+
+A job reaches `PROCESSING` only when both are satisfied, and both are
+re-checked at the moment of running rather than trusted from creation time —
+consent can be withdrawn and credits can be spent elsewhere in between.
+
+**Consent.** Everyone in the conversation except the uploader needs a recorded
+`ACCEPTED`. Each is sent a link; only the link's hash is stored, so a lost link
+is replaced, not recovered. The record carries which version of the consent
+document the person was shown, and the audit trail is append-only and never
+contains message content. Withdrawal is available with no deadline and no
+reason, from the same link, and it re-blocks a job that was already queued.
+
+**Entitlement.** An analysis costs one credit, taken when the run starts and
+handed back if it fails before producing anything. Credits are created in
+exactly one place — `applyPaymentEvent`, from an event the payment provider
+signed. Nothing the browser reports can create one. The event id is claimed in
+a ledger first, so the redelivery every provider eventually does cannot grant a
+second credit.
+
+With no Stripe credentials configured the application falls back to a simulated
+provider that takes no money, says so on screen, and still goes the long way
+round: it builds an event, signs it, and puts it through the same verification
+and idempotency path a real webhook uses.
+
+### Analysis modules
+
+A product is a set of modules plus limits (`src/lib/billing/products.ts`);
+nothing in the codebase branches on a price. Every module in a job sees the
+*same* context block — principles, statistics, advanced statistics, excerpts —
+and differs only in a short task instruction, so the shared prefix is cached
+and a six-module job pays full price for the conversation once rather than six
+times. A unit test asserts that the context strings are byte-identical.
+
+The two advice tools (`RESPONSE_ADVICE`, `AVOIDANCE_PATTERNS`) are not
+precomputed. They answer about one exchange the user picks on the finished
+report, and they work from the exchanges the server still holds, so nothing
+extra is stored to make them possible.
+
+### Imported messages are data, not instructions
+
+Message text is fenced in `<conversation_excerpts>`, every message is passed
+through `sanitiseForPrompt` (which neutralises attempts to close the fence or
+to emit another tool's control tokens), and the system prompt states the rule
+before any content arrives. Evidence citing ids that were never sent is dropped
+before it can reach the UI, and quotes are rendered from the stored messages by
+id — never from text the model echoed back.
 
 ### Provider abstraction
 
@@ -99,6 +177,8 @@ interface AIAnalysisService {
   analyzeConversation(excerpts, context): Promise<Analysis>;         // single pass
   analyzeCommunicationPatterns(excerpts, context): Promise<ChunkFindings>; // map
   generateFinalSummary(findings, context): Promise<Analysis>;        // reduce
+  runModule<T>(options: ModuleRunOptions<T>): Promise<T>;            // one module
+  onUsage(listener): void;                                           // cost accounting
   usage(): UsageTotals;
 }
 ```
@@ -199,9 +279,14 @@ outputs. Model output is treated as untrusted throughout:
   (`sanitiseAnalysis`);
 - the client re-validates the analysis a second time before it reaches the UI.
 
-Evidence quotes are rendered from the messages held locally, looked up by id —
-not from text the model echoed back — so an excerpt shown in the evidence
-drawer is always something that was really in the export.
+Evidence quotes are rendered from the stored messages, looked up by id — not
+from text the model echoed back — so an excerpt shown in the evidence drawer is
+always something that was really in the export.
+
+The per-person **communication profiles** are held to the same rule. They
+describe observable messaging behaviour with the evidence for it and state
+what the messages cannot establish. They are not personality assessments, and
+the prompt, the schema and the UI all say so.
 
 ---
 
@@ -214,7 +299,14 @@ payloads and API keys never cross that boundary. Covered: invalid JSON,
 unsupported export, empty conversation, single participant, oversized file,
 malformed request, missing configuration, provider timeout / rate limit /
 outage / refusal / malformed response, network failure, and PDF generation
-failure (which falls back to the browser's print dialog).
+failure (which falls back to the browser's print dialog). V2 adds the ones the
+new flow can produce: consent required, declined, withdrawn or not found; not
+authorised; not found; product unavailable; entitlement required; payment
+failed; and a job already running.
+
+Nothing internal is ever serialised: `toUserFacing()` emits only the code, the
+message written for a person, the hint and whether a retry is worth it. The
+detail an `AppError` carries for the log stays in the log.
 
 ---
 
@@ -227,18 +319,30 @@ All of it is documented in `.env.example` and read once in
 |---|---|---|
 | `ANTHROPIC_API_KEY` | — | Required. Server-side only. |
 | `ANTHROPIC_MODEL` | `claude-opus-5` | Model for every analysis call. |
+| `ANTHROPIC_BASE_URL` | — | Gateway or egress proxy, if you use one. |
 | `ANTHROPIC_MAX_OUTPUT_TOKENS` | `8000` | Output ceiling per call. |
-| `ANTHROPIC_EFFORT` | `medium` | Effort for per-chunk passes. |
+| `ANTHROPIC_EFFORT` | `medium` | Effort for per-chunk and module passes. |
 | `ANTHROPIC_EFFORT_SYNTHESIS` | `high` | Effort for single-pass and synthesis. |
 | `ANTHROPIC_TIMEOUT_MS` | `120000` | Per-request timeout. |
 | `ANTHROPIC_MAX_RETRIES` | `2` | SDK retries for transient failures. |
+| `ANTHROPIC_PRICE_*_PER_MTOK` | `5` / `25` / `0.5` | USD per million tokens, for recording spend. |
+| `APP_SECRET` | — | **Required in production.** Signs the identity cookie. |
+| `APP_URL` | `http://localhost:3000` | Base used to build consent links. |
+| `DATABASE_PATH` | `./data/app.db` | SQLite file. `:memory:` is accepted. |
+| `CONSENT_VALID_DAYS` | `14` | How long a consent link stays answerable. |
+| `AI_PROVIDER_NAME` | `Anthropic (Claude)` | Named in the consent document. |
+| `FREE_ANALYSES_PER_OWNER` | `3` | Free analyses before a purchase is needed. |
+| `NEXT_PUBLIC_CURRENCY` | `EUR` | Currency for every price. |
+| `NEXT_PUBLIC_PRICE_*_MINOR` | `900` / `3500` / `1900` | Prices in minor units. |
+| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | — | Both required for real payments. |
+| `MANUAL_PAYMENT_SECRET` | `APP_SECRET` | Signs the simulated provider's events. |
 | `ANALYSIS_SINGLE_PASS_MAX_MESSAGES` | `800` | Single-pass / chunked threshold. |
 | `ANALYSIS_EXCERPT_CHAR_BUDGET` | `45000` | Excerpt characters per call. |
 | `ANALYSIS_MAX_CHUNKS` | `8` | Ceiling on map-phase calls. |
 | `ANALYSIS_CONVERSATION_GAP_MINUTES` | `360` | Conversation boundary. |
 | `NEXT_PUBLIC_MAX_UPLOAD_MB` | `100` | Largest accepted export. |
-| `MAX_ANALYZE_REQUEST_MB` | `8` | Largest accepted analyze request. |
-| `RATE_LIMIT_MAX_REQUESTS` / `RATE_LIMIT_WINDOW_MINUTES` | `10` / `10` | Per-caller limit on `/api/analyze`. |
+| `MAX_ANALYZE_REQUEST_MB` | `8` | Largest accepted request body. |
+| `RATE_LIMIT_MAX_REQUESTS` / `RATE_LIMIT_WINDOW_MINUTES` | `10` / `10` | Per-caller limit on the routes that cost something. |
 | `ANALYZER_DEBUG` | `0` | Extra (content-free) pipeline logging. |
 
 ---
@@ -246,12 +350,20 @@ All of it is documented in `.env.example` and read once in
 ## Stack
 
 Next.js 16 (App Router) · React 19 · TypeScript (strict, `noUncheckedIndexedAccess`)
-· Tailwind CSS v4 · Zod · Recharts · pdfkit · Vitest · Playwright.
+· Tailwind CSS v4 · Zod · Recharts · pdfkit · better-sqlite3 · Vitest ·
+Playwright.
 
-No database — none is needed for the MVP, and adding one would mean storing
-conversations the product deliberately does not keep. No authentication,
-payments, Telegram OAuth or admin surface: none of them are required for the
-loop above.
+SQLite through `better-sqlite3`: one file, synchronous queries, nothing extra
+to run. A database became necessary when consent and payment arrived — both
+are answered by someone else, at some other time, and neither survives in a
+browser tab. The repositories in `src/server/repositories/` are the only code
+that touches SQL, so moving to Postgres later is a driver swap rather than a
+rewrite.
+
+Identity is a signed, HTTP-only cookie rather than an account, because nothing
+in the product needs to know who anyone is. `resolveOwner()` is the single
+place that changes when real authentication arrives; everything downstream only
+ever sees an owner id.
 
 The PDF is rendered server-side with pdfkit rather than printed from the
 browser, so the output is a typeset document. DejaVu Sans is embedded
@@ -274,22 +386,35 @@ readable the instant it appears.
 
 ## Tests
 
-`npm run test` — 102 unit tests over the parser (text entity flattening,
+`npm run test` — 197 unit tests over the parser (text entity flattening,
 timezone derivation, media classification, malformed and unsupported exports,
 full-account exports), the statistics engine (hand-checkable numbers for
-initiation, response times, characteristics, time bins and words), the AI layer
-(schema violations, repair retry, JSON recovery, refusals, provider error
-mapping, evidence pruning), the pipeline (excerpt budgets, pseudonymisation,
-strategy thresholds, chunked orchestration, progress events), the PDF (schema,
-Cyrillic rendering, empty series), errors and the redacting logger.
+initiation, response times, characteristics, time bins and words) and the
+advanced statistics, the AI layer (schema violations, repair retry, JSON
+recovery, refusals, provider error mapping, evidence pruning), prompt-injection
+handling, the pipeline (excerpt budgets, pseudonymisation, strategy thresholds,
+chunked orchestration, progress events, one cacheable context per job), the
+database and its migrations, the consent state machine, tokens, gate and
+document, entitlements and both providers' webhook signatures, the job
+lifecycle and its two gates, the PDF (schema, Cyrillic rendering, empty
+series), errors and the redacting logger.
 
-`npm run test:e2e` — 7 Playwright scenarios on desktop and mobile viewports,
-against a real production build: landing → upload → parse → preview → gap
-adjustment → consent → progress → insight cards → keyboard navigation →
-evidence drawer → stats → **a real server-rendered PDF download**. Only the
-Anthropic call is stubbed; the test also asserts that the outgoing request
-contains no real participant names. An invalid file is checked for a readable,
-internals-free error.
+`npm run test:e2e` — 10 Playwright scenarios on desktop and mobile viewports,
+against a real production build and a real SQLite database: landing → upload →
+parse → gap adjustment → who-are-you → plan → prepare → consent request →
+**the other participant deciding in a separate browser context** → run →
+report → evidence drawer → stats → **a real server-rendered PDF download** →
+history → reopening a finished report. A separate scenario declines instead,
+and asserts nothing was sent for analysis; another buys through the simulated
+checkout and checks the paid modules appear. The suite also reads back
+everything the server sent to the provider and asserts it carries no real
+participant names, is fenced, and carries the injection guard.
+
+Only the provider is faked, and at the network boundary rather than in the
+browser: `ANTHROPIC_BASE_URL` points at a local server (`e2e/mock-anthropic.ts`)
+that reads the JSON Schema out of each request and answers with a value
+satisfying it, citing message ids it was actually sent. It has no canned
+answers per module, so a module added later is covered without touching it.
 
 If the environment ships its own Chromium, point Playwright at it:
 
@@ -302,7 +427,13 @@ PLAYWRIGHT_CHROMIUM_PATH=/path/to/chromium npm run test:e2e
 ## Accessibility
 
 Semantic HTML, one visible focus style everywhere, a skip link, labelled form
-controls, a focus-trapped consent dialog with Escape to close, the card deck as
-a keyboard-navigable region (arrows, Home/End) with swipe on touch, ARIA labels
-on icon-only controls, table fallbacks for every chart, and
-`prefers-reduced-motion` honoured globally.
+controls, the card deck as a keyboard-navigable region (arrows, Home/End) with
+swipe on touch, tabs with proper `tablist`/`tab` roles, ARIA labels on
+icon-only controls, table fallbacks for every chart, a bottom navigation bar on
+phones so the thumb reaches it, and `prefers-reduced-motion` honoured globally.
+
+The consent page is built for someone who has never seen this application and
+has no reason to trust it: it shows what is being requested, of whom, by whom,
+and the full document, with no message content anywhere on it. Agreeing and
+declining are the same size and the same weight, because declining is a normal
+answer to being asked.
