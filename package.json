@@ -17,6 +17,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.127.0",
+    "@types/better-sqlite3": "^9.6.0",
+    "better-sqlite3": "^13.0.3",
     "next": "^16.3.5",
     "pdfkit": "^0.20.2",
     "react": "^19.3.0",

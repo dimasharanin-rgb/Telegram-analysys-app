@@ -8,7 +8,12 @@ import { chooseStrategy } from "@/lib/pipeline/strategy";
 import { buildAnalysisRequest, buildPseudonyms, humanise } from "@/lib/pipeline/payload";
 import { runAnalysisPipeline, type ProgressEvent } from "@/lib/pipeline/run";
 import type { Analysis, ChunkFindings, Excerpt } from "@/lib/ai/schema";
-import type { AIAnalysisService, UsageTotals } from "@/lib/ai/types";
+import type {
+  AIAnalysisService,
+  ModuleRunOptions,
+  UsageEvent,
+  UsageTotals,
+} from "@/lib/ai/types";
 import { checkRateLimit, resetRateLimits } from "@/lib/rate-limit";
 import { loadFixtureConversation } from "./helpers";
 
@@ -66,6 +71,14 @@ class StubService implements AIAnalysisService {
   async generateFinalSummary(): Promise<Analysis> {
     this.synthesisCalls += 1;
     return analysisWithEvidence(this.evidenceIds);
+  }
+
+  async runModule<T>(_options: ModuleRunOptions<T>): Promise<T> {
+    throw new Error("not used by these tests");
+  }
+
+  onUsage(_listener: (event: UsageEvent) => void): void {
+    // No usage is emitted by the stub.
   }
 
   usage(): UsageTotals {
@@ -352,6 +365,10 @@ describe("runAnalysisPipeline", () => {
       generateFinalSummary: async () => {
         throw new Error("boom");
       },
+      runModule: async () => {
+        throw new Error("boom");
+      },
+      onUsage: () => {},
       usage: () => ({ calls: 0, inputTokens: 0, outputTokens: 0 }),
     };
 

@@ -97,6 +97,29 @@ const OPENERS_SAM = [
 
 const SHORT_SAM = ["ok", "yeah", "sure", "mm", "sounds good", "cool", "👍", "haha", "np"];
 
+const WARMTH = [
+  "I love that you remember things like that",
+  "miss you. that's it, that's the message",
+  "you make the boring parts of the week good",
+  "I'm really glad you told me that",
+  "thank you for today. genuinely",
+];
+
+const HEDGING = [
+  "maybe I'm reading it wrong but it felt a bit off",
+  "I guess I just expected something different",
+  "not sure, possibly I'm being oversensitive about it",
+  "sort of? I don't really know how to explain it",
+];
+
+const FRICTION = [
+  "you always say that and then it doesn't happen",
+  "I never get a straight answer about this",
+  "it's every time. literally every time",
+  "I'm tired of having the same conversation",
+  "forget it, it doesn't matter",
+];
+
 const JOKES = [
   "I have now made coffee three times and drunk none of it. this is my entire personality",
   "Biscuit just tried to eat a sock. an actual sock. we are raising a goat",
@@ -203,12 +226,26 @@ const CONFLICT_SCENE: Scene = {
     { who: "alex", text: "I know that's fast" },
     { who: "sam", text: "thursday is not enough time" },
     { who: "alex", text: "I didn't set the date" },
-    { who: "sam", text: "no but you've been pushing this for weeks and now there's a deadline attached to it" },
-    { who: "alex", text: "that's not fair. I've asked what you think about four separate times and got 'mm'" },
+    { who: "sam", text: "no but you always do this. you decide, and then there's a deadline attached to it" },
+    { who: "alex", text: "that's not fair. I never get an actual answer. I've asked four separate times and got 'mm'" },
     { who: "sam", text: "because I don't KNOW yet. that's not me stonewalling you" },
     { who: "alex", text: "it feels like it from here" },
     { who: "sam", text: "ok" },
     { who: "sam", text: "I'm going to stop replying for a bit because I'll say something stupid" },
+  ],
+};
+
+const LATE_CONFLICT_SCENE: Scene = {
+  topic: "logistics",
+  lines: [
+    { who: "alex", text: "you said you'd let me know by wednesday and it's friday" },
+    { who: "sam", text: "I've had the worst week, I'm sorry, it genuinely slipped" },
+    { who: "alex", text: "it always slips though. every single time something else comes first" },
+    { who: "sam", text: "that's not fair" },
+    { who: "alex", text: "maybe not. but I never know where I stand with these" },
+    { who: "sam", text: "ok. that's a fair thing to be annoyed about" },
+    { who: "sam", text: "I'll tell you tonight, properly, either way" },
+    { who: "alex", text: "thank you. that's all I wanted" },
   ],
 };
 
@@ -400,9 +437,19 @@ messages.push({
 
 const SESSION_COUNT = 148;
 const CONFLICT_AT = 96;
+const LATE_CONFLICT_AT = 131;
 
 for (let session = 0; session < SESSION_COUNT; session += 1) {
   cursor = nextSessionStart(cursor);
+
+  // 0 at the start, 1 at the end. Warmth fades, friction and hedging rise, so
+  // the timeline comparison has a real change to find rather than noise.
+  const phase = session / (SESSION_COUNT - 1);
+
+  if (session === LATE_CONFLICT_AT) {
+    cursor = runScene(LATE_CONFLICT_SCENE, cursor);
+    continue;
+  }
 
   if (session === CONFLICT_AT) {
     cursor = runScene(CONFLICT_SCENE, cursor);
@@ -428,6 +475,15 @@ for (let session = 0; session < SESSION_COUNT; session += 1) {
   lines.push(...scene.lines.map((line) => ({ ...line })));
 
   if (chance(0.22)) lines.push({ who: chance(0.7) ? "alex" : "sam", text: pick(JOKES) });
+  if (chance(0.34 - phase * 0.26)) {
+    lines.push({ who: chance(0.6) ? "alex" : "sam", text: pick(WARMTH) });
+  }
+  if (chance(0.04 + phase * 0.22)) {
+    lines.push({ who: chance(0.65) ? "alex" : "sam", text: pick(FRICTION) });
+  }
+  if (chance(0.06 + phase * 0.16)) {
+    lines.push({ who: chance(0.5) ? "alex" : "sam", text: pick(HEDGING) });
+  }
   if (chance(0.12)) lines.push({ ...pick(LINK_LINES) });
   if (chance(0.1)) lines.push({ who: "alex", text: "I'll send a voice note, easier", media: "voice" });
   if (chance(0.08)) lines.push({ who: "sam", text: "", media: "video" });
@@ -435,7 +491,9 @@ for (let session = 0; session < SESSION_COUNT; session += 1) {
     const last = lines[lines.length - 1];
     if (last) last.edited = true;
   }
-  if (chance(0.25)) lines.push({ who: "sam", text: pick(SHORT_SAM), reply: true });
+  if (chance(0.2 + phase * 0.3)) {
+    lines.push({ who: "sam", text: pick(SHORT_SAM), reply: true });
+  }
 
   cursor = runScene({ topic: scene.topic, lines }, cursor);
 }

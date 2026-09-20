@@ -45,6 +45,16 @@ export interface ServerConfig {
     synthesisEffort: EffortLevel;
     timeoutMs: number;
     maxRetries: number;
+    /**
+     * USD per million tokens, used only for internal cost accounting. A token
+     * costs exactly this many micro-dollars, which is why usage is recorded in
+     * micros - no floating point touches a stored figure.
+     */
+    pricing: {
+      inputPerMTok: number;
+      outputPerMTok: number;
+      cacheReadPerMTok: number;
+    };
   };
   pipeline: {
     /** At or below this message count we use the cheaper single-pass strategy. */
@@ -60,6 +70,14 @@ export interface ServerConfig {
     maxAnalyzeRequestBytes: number;
     rateLimitMaxRequests: number;
     rateLimitWindowMs: number;
+  };
+  consent: {
+    /** How long a consent link stays usable. */
+    validForDays: number;
+    /** Shown on the consent page and in the document. */
+    aiProviderName: string;
+    /** Absolute base used to build consent links. */
+    appUrl: string;
   };
   debug: boolean;
 }
@@ -86,6 +104,11 @@ export function serverConfig(): ServerConfig {
       synthesisEffort: effort(process.env.ANTHROPIC_EFFORT_SYNTHESIS, "high"),
       timeoutMs: num(process.env.ANTHROPIC_TIMEOUT_MS, 120_000, 10_000, 600_000),
       maxRetries: num(process.env.ANTHROPIC_MAX_RETRIES, 2, 0, 5),
+      pricing: {
+        inputPerMTok: num(process.env.ANTHROPIC_PRICE_INPUT_PER_MTOK, 5, 0, 1_000),
+        outputPerMTok: num(process.env.ANTHROPIC_PRICE_OUTPUT_PER_MTOK, 25, 0, 1_000),
+        cacheReadPerMTok: num(process.env.ANTHROPIC_PRICE_CACHE_READ_PER_MTOK, 0.5, 0, 1_000),
+      },
     },
     pipeline: {
       singlePassMaxMessages: num(
@@ -102,6 +125,11 @@ export function serverConfig(): ServerConfig {
       maxAnalyzeRequestBytes: num(process.env.MAX_ANALYZE_REQUEST_MB, 8, 1, 64) * 1024 * 1024,
       rateLimitMaxRequests: num(process.env.RATE_LIMIT_MAX_REQUESTS, 10, 1, 1000),
       rateLimitWindowMs: num(process.env.RATE_LIMIT_WINDOW_MINUTES, 10, 1, 1440) * 60_000,
+    },
+    consent: {
+      validForDays: num(process.env.CONSENT_VALID_DAYS, 14, 1, 365),
+      aiProviderName: process.env.AI_PROVIDER_NAME?.trim() || "Anthropic (Claude)",
+      appUrl: (process.env.APP_URL?.trim() || "http://localhost:3000").replace(/\/+$/, ""),
     },
     debug: process.env.ANALYZER_DEBUG === "1",
   };

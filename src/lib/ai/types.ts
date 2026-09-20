@@ -6,6 +6,9 @@
  * not touching the pipeline or the routes.
  */
 
+import type { z } from "zod";
+
+import type { EffortLevel } from "@/lib/config";
 import type {
   Analysis,
   AnalysisRequest,
@@ -36,6 +39,31 @@ export interface UsageTotals {
   calls: number;
 }
 
+/** One model call, reported as it happens so a job can bill it to a module. */
+export interface UsageEvent {
+  module: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cachedInputTokens: number;
+}
+
+export interface ModuleRunOptions<T> {
+  /** Names the module in usage records and logs. */
+  moduleId: string;
+  /**
+   * The cacheable prefix: identical across every module of one job, so the
+   * conversation is paid for once rather than once per module.
+   */
+  systemContext: string;
+  /** The task instruction, which is what actually differs per module. */
+  task: string;
+  schema: z.ZodType<T>;
+  effort?: EffortLevel;
+  maxOutputTokens?: number;
+  signal?: AbortSignal;
+}
+
 export interface AIAnalysisService {
   readonly provider: string;
   readonly model: string;
@@ -58,8 +86,17 @@ export interface AIAnalysisService {
     context: AnalysisContext,
   ): Promise<Analysis>;
 
+  /**
+   * Runs one analysis module against a shared, cacheable context block.
+   * This is the path every V2 module uses.
+   */
+  runModule<T>(options: ModuleRunOptions<T>): Promise<T>;
+
   /** Token usage accumulated across every call made by this instance. */
   usage(): UsageTotals;
+
+  /** Receives one event per model call, for per-module cost accounting. */
+  onUsage(listener: (event: UsageEvent) => void): void;
 }
 
 /** Everything the pipeline needs, independent of transport. */

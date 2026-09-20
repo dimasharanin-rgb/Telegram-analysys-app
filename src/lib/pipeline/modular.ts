@@ -1,0 +1,319 @@
+/**
+ * The V2 analysis pipeline.
+ *
+ * Runs the base pass (the MVP pipeline, unchanged) and then whichever extra
+ * modules the job's product unlocked, against a single shared context block
+ * that the provider can cache. A six-module job therefore costs roughly one
+ * full read of the conversation plus six short task prompts, rather than six
+ * full reads.
+ *
+ * Every module's output is validated, and every piece of evidence is checked
+ * against the ids actually sent before it can reach the UI.
+ */
+
+import { batchModules, type AnalysisModule } from "@/lib/analysis/modules";
+import { JOB_STAGE_MESSAGES, type JobStage } from "@/lib/analysis/job";
+import { serverConfig } from "@/lib/config";
+import { asAppError } from "@/lib/errors";
+import { log } from "@/lib/logger";
+import {
+  pruneUnknownEvidence,
+  sanitiseAnalysis,
+  type Analysis,
+  type Confidence,
+} from "@/lib/ai/schema";
+import type { AnalysisJobInput } from "@/lib/ai/modules/input";
+import {
+  CONFLICT_TASK,
+  EMOTIONAL_TASK,
+  INTERACTION_TASK,
+  PROFILES_TASK,
+  sharedContextBlock,
+  TIMELINE_TASK,
+} from "@/lib/ai/modules/prompts";
+import {
+  conflictFindingsSchema,
+  emotionalFindingsSchema,
+  interactionFindingsSchema,
+  profileFindingsSchema,
+  timelineFindingsSchema,
+  type ConflictFindings,
+  type EmotionalFindings,
+  type InteractionFindings,
+  type ProfileFindings,
+  type TimelineFindings,
+} from "@/lib/ai/modules/schemas";
+import type { AIAnalysisService, UsageTotals } from "@/lib/ai/types";
+import { runAnalysisPipeline } from "./run";
+
+/* -------------------------------------------------------------------------
+ * Result
+ * ---------------------------------------------------------------------- */
+
+export const ANALYSIS_RESULT_VERSION = 2;
+
+export interface AnalysisResultV2 {
+  version: typeof ANALYSIS_RESULT_VERSION;
+  generatedAt: string;
+  modules: AnalysisModule[];
+  strategy: string;
+  confidence: Confidence;
+  /** Everything the MVP produced, unchanged in shape. */
+  base: Analysis;
+  interaction: InteractionFindings | null;
+  emotional: EmotionalFindings | null;
+  conflicts: ConflictFindings | null;
+  timeline: TimelineFindings | null;
+  profiles: ProfileFindings | null;
+}
+
+export interface ModularProgressEvent {
+  stage: JobStage;
+  message: string;
+  percent: number;
+  step: number;
+  totalSteps: number;
+}
+
+export interface ModularRunOptions {
+  input: AnalysisJobInput;
+  service: AIAnalysisService;
+  onProgress?: (event: ModularProgressEvent) => void;
+  signal?: AbortSignal;
+}
+
+export interface ModularRunResult {
+  result: AnalysisResultV2;
+  usage: UsageTotals;
+  strategy: string;
+}
+
+/** Which stage each optional module reports as. */
+const MODULE_STAGE: Partial<Record<AnalysisModule, JobStage>> = {
+  COMMUNICATION: "communication",
+  TOPICS: "topics",
+  INTERACTION: "interaction",
+  EMOTIONAL_LANGUAGE: "emotional",
+  CONFLICT: "conflict",
+  TIMELINE: "timeline",
+  PERSONAL_PROFILES: "profiles",
+};
+
+/**
+ * Modules handled by the base pass rather than a call of their own: the MVP
+ * pipeline already produces patterns and recurring topics.
+ */
+const COVERED_BY_BASE: AnalysisModule[] = ["COMMUNICATION", "TOPICS"];
+
+export async function runModularAnalysis(
+  options: ModularRunOptions,
+): Promise<ModularRunResult> {
+  const { input, service, signal } = options;
+  const config = serverConfig();
+
+  const selected = batchModules(input.modules);
+  const extras = selected.filter((id) => !COVERED_BY_BASE.includes(id));
+
+  // Base pass, plus one call per extra module.
+  const totalSteps = 1 + extras.length;
+  let step = 0;
+
+  const emit = (stage: JobStage, currentStep: number) => {
+    options.onProgress?.({
+      stage,
+      message: JOB_STAGE_MESSAGES[stage],
+      percent: Math.round((currentStep / (totalSteps + 1)) * 100),
+      step: currentStep,
+      totalSteps,
+    });
+  };
+
+  emit("preparing", 0);
+
+  const knownIds = new Set(
+    input.excerpts.flatMap((excerpt) => excerpt.messages.map((message) => message.id)),
+  );
+
+  const context = {
+    participants: input.participants.map((p) => ({ id: p.id, label: p.label })),
+    statistics: input.statistics,
+    advanced: input.advanced,
+    excerpts: input.excerpts,
+  };
+  const systemContext = sharedContextBlock(context);
+
+  try {
+    /* --- base pass ---------------------------------------------------- */
+    step += 1;
+    emit("communication", step);
+
+    const base = await runAnalysisPipeline({
+      request: input,
+      service,
+      ...(signal ? { signal } : {}),
+      // The base pipeline reports its own sub-stages; the job only needs to
+      // know which module is running, so they are not forwarded.
+    });
+
+    /* --- optional modules --------------------------------------------- */
+    let interaction: InteractionFindings | null = null;
+    let emotional: EmotionalFindings | null = null;
+    let conflicts: ConflictFindings | null = null;
+    let timeline: TimelineFindings | null = null;
+    let profiles: ProfileFindings | null = null;
+
+    const runOne = async <T>(
+      moduleId: AnalysisModule,
+      task: string,
+      schema: Parameters<AIAnalysisService["runModule"]>[0]["schema"],
+    ): Promise<T> => {
+      signal?.throwIfAborted();
+      step += 1;
+      emit(MODULE_STAGE[moduleId] ?? "synthesis", step);
+      return service.runModule({
+        moduleId,
+        systemContext,
+        task,
+        schema,
+        effort: config.anthropic.effort,
+        ...(signal ? { signal } : {}),
+      }) as Promise<T>;
+    };
+
+    for (const moduleId of extras) {
+      switch (moduleId) {
+        case "INTERACTION":
+          interaction = await runOne<InteractionFindings>(
+            moduleId,
+            INTERACTION_TASK,
+            interactionFindingsSchema,
+          );
+          break;
+        case "EMOTIONAL_LANGUAGE":
+          emotional = await runOne<EmotionalFindings>(
+            moduleId,
+            EMOTIONAL_TASK,
+            emotionalFindingsSchema,
+          );
+          break;
+        case "CONFLICT":
+          // Nothing shortlisted means nothing to read; skip the call rather
+          // than pay for a model confirming there was no argument.
+          if (input.advanced.conflictCandidates.length === 0) {
+            log.info("pipeline.module_skipped", { module: moduleId, reason: "no_candidates" });
+            break;
+          }
+          conflicts = await runOne<ConflictFindings>(
+            moduleId,
+            CONFLICT_TASK,
+            conflictFindingsSchema,
+          );
+          break;
+        case "TIMELINE":
+          if (!input.advanced.timeline.comparable) {
+            log.info("pipeline.module_skipped", { module: moduleId, reason: "not_comparable" });
+            break;
+          }
+          timeline = await runOne<TimelineFindings>(
+            moduleId,
+            TIMELINE_TASK,
+            timelineFindingsSchema,
+          );
+          break;
+        case "PERSONAL_PROFILES":
+          profiles = await runOne<ProfileFindings>(
+            moduleId,
+            PROFILES_TASK,
+            profileFindingsSchema,
+          );
+          break;
+        default:
+          break;
+      }
+    }
+
+    /* --- validation ---------------------------------------------------- */
+    step += 1;
+    emit("validating", step);
+
+    const result: AnalysisResultV2 = {
+      version: ANALYSIS_RESULT_VERSION,
+      generatedAt: new Date().toISOString(),
+      modules: selected,
+      strategy: base.strategy,
+      confidence: base.analysis.overview.confidence,
+      base: sanitiseAnalysis(base.analysis, knownIds),
+      interaction: interaction
+        ? { ...interaction, patterns: pruneUnknownEvidence(interaction.patterns, knownIds) }
+        : null,
+      emotional: emotional
+        ? {
+            ...emotional,
+            observations: pruneUnknownEvidence(emotional.observations, knownIds),
+          }
+        : null,
+      conflicts: conflicts
+        ? {
+            ...conflicts,
+            conflicts: pruneUnknownEvidence(
+              conflicts.conflicts.filter((entry) =>
+                input.advanced.conflictCandidates.some(
+                  (candidate) => candidate.id === entry.candidateId,
+                ),
+              ),
+              knownIds,
+            ),
+          }
+        : null,
+      timeline: timeline
+        ? { ...timeline, changes: pruneUnknownEvidence(timeline.changes, knownIds) }
+        : null,
+      profiles: profiles
+        ? {
+            profiles: pruneUnknownEvidence(
+              // A profile for a participant we never sent is not a profile.
+              profiles.profiles.filter((profile) =>
+                input.participants.some((p) => p.id === profile.participantId),
+              ),
+              knownIds,
+            ),
+          }
+        : null,
+    };
+
+    emit("done", totalSteps + 1);
+
+    const usage = service.usage();
+    log.info("pipeline.modular_complete", {
+      modules: selected.join(","),
+      strategy: base.strategy,
+      calls: usage.calls,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+    });
+
+    return { result, usage, strategy: base.strategy };
+  } catch (error) {
+    const appError = asAppError(error);
+    log.error("pipeline.modular_failed", {
+      code: appError.code,
+      modules: selected.join(","),
+    });
+    throw appError;
+  }
+}
+
+/** Micro-dollars for one model call, from the configured per-MTok prices. */
+export function costMicros(usage: {
+  inputTokens: number;
+  outputTokens: number;
+  cachedInputTokens: number;
+}): number {
+  const pricing = serverConfig().anthropic.pricing;
+  const freshInput = Math.max(0, usage.inputTokens - usage.cachedInputTokens);
+  return Math.round(
+    freshInput * pricing.inputPerMTok +
+      usage.cachedInputTokens * pricing.cacheReadPerMTok +
+      usage.outputTokens * pricing.outputPerMTok,
+  );
+}

@@ -9,56 +9,20 @@
  * Cyrillic, and Telegram exports frequently are not Latin-only.
  */
 
-import fs from "node:fs";
-import path from "node:path";
 import PDFDocument from "pdfkit";
 
+import {
+  CONTENT_WIDTH,
+  MARGIN,
+  PAGE,
+  PALETTE,
+  registerFonts,
+  type Fonts,
+} from "./fonts";
 import type { PdfReportPayload } from "./payload";
-
-const PALETTE = {
-  primary: "#2563EB",
-  primaryDark: "#1D4ED8",
-  primarySoft: "#DBEAFE",
-  surface: "#F8FAFC",
-  border: "#E2E8F0",
-  text: "#0F172A",
-  muted: "#64748B",
-  accent: "#0EA5E9",
-} as const;
 
 /** Participant colours, in the same order the UI uses. */
 const SERIES = ["#2563EB", "#0EA5E9", "#7C3AED", "#D97706"] as const;
-
-const PAGE = { width: 595.28, height: 841.89 };
-const MARGIN = 48;
-const CONTENT_WIDTH = PAGE.width - MARGIN * 2;
-
-const FONT_DIR = path.join(process.cwd(), "assets", "fonts");
-
-interface Fonts {
-  regular: string;
-  bold: string;
-}
-
-/**
- * Registers the embedded font, falling back to the built-in Helvetica if the
- * files are missing from the deployment. Latin text still renders in that
- * case; the caller is not failed over a font.
- */
-function registerFonts(doc: PDFKit.PDFDocument): Fonts {
-  try {
-    const regular = path.join(FONT_DIR, "DejaVuSans.ttf");
-    const bold = path.join(FONT_DIR, "DejaVuSans-Bold.ttf");
-    if (fs.existsSync(regular) && fs.existsSync(bold)) {
-      doc.registerFont("body", regular);
-      doc.registerFont("bodyBold", bold);
-      return { regular: "body", bold: "bodyBold" };
-    }
-  } catch {
-    // fall through to the standard fonts
-  }
-  return { regular: "Helvetica", bold: "Helvetica-Bold" };
-}
 
 function formatSeconds(seconds: number): string {
   if (seconds <= 0) return "—";

@@ -39,14 +39,21 @@ import type {
   AIAnalysisService,
   AnalysisContext,
   ChunkContext,
+  ModuleRunOptions,
+  UsageEvent,
   UsageTotals,
 } from "./types";
 
 interface CallOptions<T> {
-  system: string;
+  /**
+   * System prompt. An array is sent as separate blocks with the last one
+   * marked cacheable, which is how a job's shared context is paid for once.
+   */
+  system: string | { text: string; cache: boolean }[];
   userMessage: string;
   schema: z.ZodType<T>;
   effort: EffortLevel;
+  maxOutputTokens?: number;
   signal?: AbortSignal;
   stage: string;
 }
@@ -57,6 +64,7 @@ export class ClaudeAnalysisService implements AIAnalysisService {
 
   private readonly client: Anthropic;
   private readonly totals: UsageTotals = { inputTokens: 0, outputTokens: 0, calls: 0 };
+  private usageListener: ((event: UsageEvent) => void) | null = null;
 
   constructor(client?: Anthropic) {
     const config = serverConfig();
@@ -77,6 +85,33 @@ export class ClaudeAnalysisService implements AIAnalysisService {
 
   usage(): UsageTotals {
     return { ...this.totals };
+  }
+
+  onUsage(listener: (event: UsageEvent) => void): void {
+    this.usageListener = listener;
+  }
+
+  /**
+   * Runs one module. The shared context goes in a cached system block, so the
+   * second and later modules of a job re-read it at cache rates instead of
+   * resending the whole conversation.
+   */
+  async runModule<T>(options: ModuleRunOptions<T>): Promise<T> {
+    return this.call({
+      system: [
+        { text: options.systemContext, cache: true },
+        { text: options.task, cache: false },
+      ],
+      userMessage:
+        "Produce the analysis for the task described above, using the statistics and excerpts already provided.",
+      schema: options.schema,
+      effort: options.effort ?? serverConfig().anthropic.effort,
+      ...(options.maxOutputTokens !== undefined
+        ? { maxOutputTokens: options.maxOutputTokens }
+        : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
+      stage: options.moduleId,
+    });
   }
 
   async analyzeConversation(
@@ -171,8 +206,17 @@ export class ClaudeAnalysisService implements AIAnalysisService {
       response = await this.client.messages.parse(
         {
           model: this.model,
-          max_tokens: config.anthropic.maxOutputTokens,
-          system: options.system,
+          max_tokens: options.maxOutputTokens ?? config.anthropic.maxOutputTokens,
+          system:
+            typeof options.system === "string"
+              ? options.system
+              : options.system.map((block) => ({
+                  type: "text" as const,
+                  text: block.text,
+                  ...(block.cache
+                    ? { cache_control: { type: "ephemeral" as const } }
+                    : {}),
+                })),
           thinking: { type: "adaptive", display: "omitted" },
           output_config: {
             effort: options.effort,
@@ -186,16 +230,29 @@ export class ClaudeAnalysisService implements AIAnalysisService {
       throw translateProviderError(error);
     }
 
+    const inputTokens = response.usage?.input_tokens ?? 0;
+    const outputTokens = response.usage?.output_tokens ?? 0;
+    const cachedInputTokens = response.usage?.cache_read_input_tokens ?? 0;
+
     this.totals.calls += 1;
-    this.totals.inputTokens += response.usage?.input_tokens ?? 0;
-    this.totals.outputTokens += response.usage?.output_tokens ?? 0;
+    this.totals.inputTokens += inputTokens;
+    this.totals.outputTokens += outputTokens;
+
+    this.usageListener?.({
+      module: options.stage,
+      model: this.model,
+      inputTokens,
+      outputTokens,
+      cachedInputTokens,
+    });
 
     log.debug("ai.call", {
       stage: options.stage,
       model: this.model,
       effort: options.effort,
-      inputTokens: response.usage?.input_tokens ?? 0,
-      outputTokens: response.usage?.output_tokens ?? 0,
+      inputTokens,
+      outputTokens,
+      cachedInputTokens,
       stopReason: response.stop_reason ?? "unknown",
     });
 

@@ -38,6 +38,12 @@ export interface ExcerptOptions {
   maxMessagesPerSegment?: number;
   /** Maximum characters kept from a single message. */
   maxCharsPerMessage?: number;
+  /**
+   * Segments that must be included whatever they score - the exchanges the
+   * conflict heuristic shortlisted, so the module analysing them can actually
+   * see them.
+   */
+  prioritySegmentIndices?: readonly number[];
 }
 
 export interface ExcerptSelection {
@@ -171,8 +177,12 @@ export function selectExcerpts(
   const excerpts: Excerpt[] = [];
   const includedIds = new Set<string>();
   let totalCharacters = 0;
+  const priority = new Set(options.prioritySegmentIndices ?? []);
 
-  const tryAdd = (segment: ConversationSegment): boolean => {
+  const added = new Set<number>();
+
+  const tryAdd = (segment: ConversationSegment, force = false): boolean => {
+    if (added.has(segment.index)) return false;
     const excerpt = buildExcerpt(
       segment,
       messages,
@@ -182,12 +192,24 @@ export function selectExcerpts(
     );
     if (excerpt.messages.length === 0) return false;
     const cost = excerptCharacters(excerpt);
-    if (totalCharacters + cost > options.charBudget && excerpts.length > 0) return false;
+    if (!force && totalCharacters + cost > options.charBudget && excerpts.length > 0) {
+      return false;
+    }
     excerpts.push(excerpt);
+    added.add(segment.index);
     totalCharacters += cost;
     for (const message of excerpt.messages) includedIds.add(message.id);
     return true;
   };
+
+  // Priority segments go in first and are not subject to the budget check:
+  // a shortlisted difficult moment that got dropped would leave the module
+  // analysing it with nothing to read.
+  if (priority.size > 0) {
+    for (const segment of segments) {
+      if (priority.has(segment.index)) tryAdd(segment, true);
+    }
+  }
 
   chosen
     .sort((a, b) => a.startEpochMs - b.startEpochMs)

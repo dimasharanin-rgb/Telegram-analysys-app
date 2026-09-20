@@ -7,7 +7,7 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/export/pdf": ["./assets/fonts/**/*", "./node_modules/pdfkit/js/data/**/*"],
   },
-  serverExternalPackages: ["pdfkit"],
+  serverExternalPackages: ["pdfkit", "better-sqlite3"],
 };
 
 export default nextConfig;

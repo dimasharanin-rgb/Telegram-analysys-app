@@ -14,7 +14,9 @@
  */
 
 import type { ConversationSegment } from "@/lib/analysis/segmentation";
+import type { AdvancedDigest } from "@/lib/ai/modules/input";
 import type { AnalysisRequest, StatisticsDigest } from "@/lib/ai/schema";
+import type { AdvancedStatistics } from "@/lib/stats/advanced";
 import type { Conversation, NormalizedMessage } from "@/lib/model/message";
 import { WEEKDAY_LABELS, type ConversationStatistics } from "@/lib/stats";
 import { selectExcerpts } from "./excerpts";
@@ -177,4 +179,83 @@ export function humanise(text: string, toDisplayName: ReadonlyMap<string, string
     output = output.split(`${PSEUDONYM_PREFIX}${pseudonym}`).join(name);
   }
   return output;
+}
+
+/* -------------------------------------------------------------------------
+ * V2: advanced statistics digest
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Remaps the advanced statistics onto pseudonymous participant ids, so the
+ * second layer of figures travels under the same labels as the first and no
+ * display name leaves the browser.
+ */
+export function buildAdvancedDigest(
+  advanced: AdvancedStatistics,
+  toPseudonym: ReadonlyMap<string, string>,
+): AdvancedDigest {
+  const interaction: AdvancedDigest["interaction"]["perParticipant"] = {};
+  const emotional: AdvancedDigest["emotional"]["perParticipant"] = {};
+
+  for (const [id, pseudonym] of toPseudonym) {
+    const stats = advanced.interaction.perParticipant[id];
+    if (stats) interaction[pseudonym] = { ...stats };
+    const counts = advanced.emotional.perParticipant[id];
+    if (counts) emotional[pseudonym] = { ...counts };
+  }
+
+  const remapShare = (values: Record<string, number>): Record<string, number> => {
+    const out: Record<string, number> = {};
+    for (const [id, pseudonym] of toPseudonym) out[pseudonym] = values[id] ?? 0;
+    return out;
+  };
+
+  return {
+    interaction: {
+      perParticipant: interaction,
+      reciprocity: { ...advanced.interaction.reciprocity },
+    },
+    emotional: {
+      perParticipant: emotional,
+      overall: { ...advanced.emotional.overall },
+      messagesScored: advanced.emotional.messagesScored,
+    },
+    timeline: {
+      comparable: advanced.timeline.comparable,
+      note: advanced.timeline.note,
+      periods: advanced.timeline.periods.map((period) => ({
+        id: period.id,
+        label: period.label,
+        startDate: period.startDate,
+        endDate: period.endDate,
+        messages: period.messages,
+        averageLength: period.averageLength,
+        medianResponseSeconds: period.medianResponseSeconds,
+        questionRate: period.questionRate,
+        emojiRate: period.emojiRate,
+        conversations: period.conversations,
+        averageMessagesPerConversation: period.averageMessagesPerConversation,
+        initiationShare: remapShare(period.initiationShare),
+        indicators: { ...period.indicators },
+        topWords: period.topWords,
+      })),
+      changes: advanced.timeline.changes.map((change) => ({
+        metric: change.metric,
+        label: change.label,
+        direction: change.direction,
+        changePercent: change.changePercent,
+        earlyLabel: change.earlyLabel,
+        recentLabel: change.recentLabel,
+      })),
+    },
+    conflictCandidates: advanced.conflictCandidates.map((candidate) => ({
+      id: candidate.id,
+      startIso: candidate.startIso,
+      endIso: candidate.endIso,
+      messageIds: candidate.messageIds.slice(0, 120),
+      signals: candidate.signals,
+      followedBySilenceSeconds: candidate.followedBySilenceSeconds,
+      repairFollowed: candidate.repairFollowed,
+    })),
+  };
 }
