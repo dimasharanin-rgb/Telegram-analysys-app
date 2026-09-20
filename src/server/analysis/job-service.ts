@@ -321,7 +321,7 @@ export async function runAnalysisJob(options: RunJobOptions): Promise<RunJobResu
     const appError = asAppError(error);
     releaseEntitlement(entitlementId);
     jobs.transitionJob(jobId, "FAILED", { errorCode: appError.code });
-    log.error("job.failed", { jobId, code: appError.code });
+    log.error("job.failed", { jobId, code: appError.code, detail: appError.message });
     throw appError;
   } finally {
     running.delete(jobId);

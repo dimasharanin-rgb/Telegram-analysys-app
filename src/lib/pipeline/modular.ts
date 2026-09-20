@@ -304,6 +304,7 @@ export async function runModularAnalysis(
     const appError = asAppError(error);
     log.error("pipeline.modular_failed", {
       code: appError.code,
+      detail: appError.message,
       modules: selected.join(","),
     });
     throw appError;

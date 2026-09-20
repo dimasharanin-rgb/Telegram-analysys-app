@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   assertTransition,
@@ -359,6 +359,34 @@ describe("the entitlement gate on a job", () => {
     // The credit is back, so a second attempt is possible.
     const retry = setupJob("deep-text");
     acceptConsent(retry.conversation.id, retry.ownerId);
+  });
+
+  it("logs the real cause of an unexpected failure, not just its generic code", async () => {
+    const { job, ownerId, conversation, evidenceIds } = setupJob("deep-text");
+    acceptConsent(conversation.id, ownerId);
+    createEntitlement({ ownerId, productId: "deep-text", source: "purchase", creditsTotal: 1 });
+
+    const service = new StubAiService(evidenceIds);
+    service.failBase = true;
+
+    const errorLines: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((line: string) => {
+      errorLines.push(line);
+    });
+    try {
+      await expect(runAnalysisJob({ jobId: job.id, ownerId, service })).rejects.toBeTruthy();
+    } finally {
+      spy.mockRestore();
+    }
+
+    // An error a route or module didn't specifically classify comes through
+    // as code UNKNOWN - which is meaningless on its own for anyone reading
+    // the log afterwards. The original message has to survive alongside it.
+    const failureLine = errorLines.find((line) => line.includes('"job.failed"'));
+    expect(failureLine).toBeTruthy();
+    const parsed = JSON.parse(failureLine!) as { code: string; detail: string };
+    expect(parsed.code).toBe("UNKNOWN");
+    expect(parsed.detail).toContain("base pass failed");
   });
 });
 
