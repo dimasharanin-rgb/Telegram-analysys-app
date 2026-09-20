@@ -9,7 +9,7 @@
  * consent can be withdrawn and credits can be spent elsewhere in between.
  */
 
-import { isActive, type JobStage } from "@/lib/analysis/job";
+import { isTerminal, type JobStage } from "@/lib/analysis/job";
 import { batchModules } from "@/lib/analysis/modules";
 import { allowedModulesFor, getProduct } from "@/lib/billing/products";
 import { serverConfig } from "@/lib/config";
@@ -189,11 +189,14 @@ export function describeReadiness(jobId: string, ownerId: string): JobReadiness 
     job,
     gate,
     entitlementReady,
+    // QUEUED is precisely the runnable state: both gates are satisfied and
+    // nothing is in flight. Only a run already under way, or a job that has
+    // finished one way or another, is out of reach.
     runnable:
       gate.satisfied &&
       entitlementReady &&
-      !isActive(job.status) &&
-      job.status !== "COMPLETED",
+      job.status !== "PROCESSING" &&
+      !isTerminal(job.status),
   };
 }
 
@@ -225,7 +228,7 @@ export async function runAnalysisJob(options: RunJobOptions): Promise<RunJobResu
     message: "This analysis has already been produced.",
     hint: "Open it from your analyses instead of running it again.",
   });
-  if (isActive(job.status) && job.status === "PROCESSING") throw new AppError("JOB_LOCKED");
+  if (job.status === "PROCESSING") throw new AppError("JOB_LOCKED");
 
   // 1. Consent, re-checked now rather than trusted from creation time.
   const gate = evaluateConsentGate(job.conversationId);

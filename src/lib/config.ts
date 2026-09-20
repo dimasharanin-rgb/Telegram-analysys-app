@@ -39,6 +39,8 @@ export const publicLimits = {
 export interface ServerConfig {
   anthropic: {
     apiKey: string;
+    /** Override the API endpoint — a gateway or egress proxy. Empty means the public one. */
+    baseUrl: string;
     model: string;
     maxOutputTokens: number;
     effort: EffortLevel;
@@ -98,6 +100,7 @@ export function serverConfig(): ServerConfig {
   cached = {
     anthropic: {
       apiKey,
+      baseUrl: process.env.ANTHROPIC_BASE_URL?.trim() ?? "",
       model: process.env.ANTHROPIC_MODEL?.trim() || "claude-opus-5",
       maxOutputTokens: num(process.env.ANTHROPIC_MAX_OUTPUT_TOKENS, 8000, 1024, 64000),
       effort: effort(process.env.ANTHROPIC_EFFORT, "medium"),

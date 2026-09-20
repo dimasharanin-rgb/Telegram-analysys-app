@@ -80,6 +80,9 @@ export class ClaudeAnalysisService implements AIAnalysisService {
         apiKey: config.anthropic.apiKey,
         timeout: config.anthropic.timeoutMs,
         maxRetries: config.anthropic.maxRetries,
+        // Set when the deployment reaches Anthropic through a gateway or
+        // egress proxy rather than the public endpoint.
+        ...(config.anthropic.baseUrl ? { baseURL: config.anthropic.baseUrl } : {}),
       });
   }
 

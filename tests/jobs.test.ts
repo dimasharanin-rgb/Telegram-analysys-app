@@ -166,6 +166,19 @@ describe("creating a job", () => {
     expect(describeReadiness(job.id, ownerId).runnable).toBe(false);
   });
 
+  it("becomes runnable once consent lands, while still spending nothing", () => {
+    // The free product, so consent is the only gate left to satisfy.
+    const { job, ownerId, conversation } = setupJob("free");
+    acceptConsent(conversation.id, ownerId);
+
+    const readiness = describeReadiness(job.id, ownerId);
+    expect(readiness.job.status).toBe("QUEUED");
+    expect(readiness.runnable).toBe(true);
+    // QUEUED means "ready to run", not "running": nothing is charged until
+    // the user asks for it.
+    expect(readiness.job.entitlementId).toBeNull();
+  });
+
   it("stores the prepared input alongside the job", () => {
     const { job } = setupJob();
     const stored = getJobInput(job.id);
