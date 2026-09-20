@@ -114,15 +114,21 @@ export async function runModularAnalysis(
   const selected = batchModules(input.modules);
   const extras = selected.filter((id) => !COVERED_BY_BASE.includes(id));
 
-  // Base pass, plus one call per extra module.
-  const totalSteps = 1 + extras.length;
+  // Base pass, plus one call per extra module, plus validation and the final
+  // "done" marker. Every `emit()` call below advances `step` by exactly one
+  // towards this total, so "Step X of Y" and the percentage both land on Y at
+  // the last one. Previously the count stopped at the module calls, so
+  // validation and completion were reported as steps beyond the stated total
+  // (e.g. "Step 7 of 6") - not a failure, but indistinguishable from one in
+  // the UI, which does not clamp the step text the way it clamps the bar.
+  const totalSteps = 1 + extras.length + 2;
   let step = 0;
 
   const emit = (stage: JobStage, currentStep: number) => {
     options.onProgress?.({
       stage,
       message: JOB_STAGE_MESSAGES[stage],
-      percent: Math.round((currentStep / (totalSteps + 1)) * 100),
+      percent: Math.round((currentStep / totalSteps) * 100),
       step: currentStep,
       totalSteps,
     });
@@ -281,7 +287,8 @@ export async function runModularAnalysis(
         : null,
     };
 
-    emit("done", totalSteps + 1);
+    step += 1;
+    emit("done", step);
 
     const usage = service.usage();
     log.info("pipeline.modular_complete", {

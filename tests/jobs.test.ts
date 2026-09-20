@@ -391,6 +391,37 @@ describe("a completed run", () => {
     ]);
   });
 
+  it("reports progress that never overruns its own stated total", async () => {
+    const { job, ownerId, conversation, evidenceIds, candidateId } = setupJob("deep-text");
+    acceptConsent(conversation.id, ownerId);
+    createEntitlement({
+      ownerId,
+      productId: "deep-text",
+      source: "purchase",
+      creditsTotal: 1,
+    });
+    const service = new StubAiService(
+      evidenceIds,
+      cannedModuleResults(evidenceIds, candidateId),
+    );
+    const events: { stage: string; step: number; totalSteps: number; percent: number }[] = [];
+    await runAnalysisJob({ jobId: job.id, ownerId, service, onProgress: (e) => events.push(e) });
+
+    // Every event's step is within [0, totalSteps], and totalSteps is the
+    // same figure throughout a run - the denominator does not move under you.
+    const totalSteps = events[0]!.totalSteps;
+    for (const event of events) {
+      expect(event.totalSteps).toBe(totalSteps);
+      expect(event.step).toBeLessThanOrEqual(totalSteps);
+      expect(event.percent).toBeLessThanOrEqual(100);
+    }
+    // The run ends at exactly 100%, on the final reported step.
+    const last = events.at(-1)!;
+    expect(last.stage).toBe("done");
+    expect(last.step).toBe(totalSteps);
+    expect(last.percent).toBe(100);
+  });
+
   it("gives every module the identical context block, so it can be cached", async () => {
     const { service } = await completeRun();
     const contexts = new Set(service.moduleCalls.map((call) => call.systemContext));
