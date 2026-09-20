@@ -57,7 +57,126 @@ export const pdfReportSchema = z.object({
       confidence: z.enum(["high", "medium", "low"]),
     })
     .nullable(),
-  methodology: z.array(z.string().max(500)).max(6),
+  methodology: z.array(z.string().max(500)).max(12),
+
+  /* --- V2 sections. All optional, so a statistics-only report still works. */
+
+  /** Application version, printed on the cover. */
+  appVersion: z.string().max(20).optional(),
+  analysisType: z.string().max(40).optional(),
+
+  keyInsights: z
+    .array(
+      z.object({
+        title: z.string().max(120),
+        observation: z.string().max(600),
+        interpretation: z.string().max(700),
+        uncertainty: z.string().max(500),
+      }),
+    )
+    .max(8)
+    .optional(),
+
+  profiles: z
+    .array(
+      z.object({
+        name: z.string().max(80),
+        headline: z.string().max(200),
+        traits: z
+          .array(
+            z.object({
+              label: z.string().max(60),
+              level: z.string().max(30),
+              basis: z.string().max(300),
+            }),
+          )
+          .max(8),
+        strengths: z.array(z.string().max(300)).max(4),
+        watchouts: z.array(z.string().max(300)).max(4),
+      }),
+    )
+    .max(6)
+    .optional(),
+
+  interactionPatterns: z
+    .array(
+      z.object({
+        title: z.string().max(120),
+        observation: z.string().max(600),
+        interpretation: z.string().max(700),
+      }),
+    )
+    .max(6)
+    .optional(),
+
+  timelineChanges: z
+    .array(
+      z.object({
+        title: z.string().max(120),
+        earlier: z.string().max(400),
+        later: z.string().max(400),
+      }),
+    )
+    .max(8)
+    .optional(),
+
+  conflicts: z
+    .array(
+      z.object({
+        title: z.string().max(120),
+        trigger: z.string().max(500),
+        repair: z.string().max(500),
+        resolution: z.string().max(40),
+      }),
+    )
+    .max(6)
+    .optional(),
+
+  suggestions: z
+    .array(
+      z.object({
+        title: z.string().max(120),
+        doThis: z.string().max(400),
+        avoidThis: z.string().max(400),
+      }),
+    )
+    .max(6)
+    .optional(),
+
+  /** A small number of quoted exchanges, never the conversation. */
+  evidence: z
+    .array(
+      z.object({
+        label: z.string().max(80),
+        lines: z
+          .array(
+            z.object({
+              speaker: z.string().max(80),
+              text: z.string().max(600),
+            }),
+          )
+          .max(12),
+      }),
+    )
+    .max(6)
+    .optional(),
+
+  /** Reference to the consent records this analysis ran under. */
+  consent: z
+    .object({
+      documentVersion: z.string().max(20),
+      participants: z
+        .array(
+          z.object({
+            name: z.string().max(80),
+            status: z.string().max(40),
+            decidedAt: z.string().max(40).nullable(),
+          }),
+        )
+        .max(12),
+    })
+    .nullable()
+    .optional(),
 });
 
 export type PdfReportPayload = z.infer<typeof pdfReportSchema>;

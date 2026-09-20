@@ -89,8 +89,319 @@ function draw(doc: PDFKit.PDFDocument, fonts: Fonts, payload: PdfReportPayload):
   drawActivity(doc, fonts, payload);
   drawWords(doc, fonts, payload);
   drawOverview(doc, fonts, payload);
+  // V2 sections. Each renders only when the matching module ran.
+  drawProfiles(doc, fonts, payload);
+  drawInteraction(doc, fonts, payload);
+  drawTimeline(doc, fonts, payload);
+  drawConflicts(doc, fonts, payload);
+  drawKeyInsights(doc, fonts, payload);
+  drawSuggestions(doc, fonts, payload);
+  drawEvidence(doc, fonts, payload);
+  drawConsent(doc, fonts, payload);
   drawMethodology(doc, fonts, payload);
   drawFooters(doc, fonts);
+}
+
+/* -------------------------------------------------------------------------
+ * V2 sections
+ * ---------------------------------------------------------------------- */
+
+/** A labelled block of body text, the building block of the written sections. */
+function paragraph(
+  doc: PDFKit.PDFDocument,
+  fonts: Fonts,
+  label: string,
+  text: string,
+  options: { indent?: number } = {},
+): void {
+  if (!text) return;
+  const indent = options.indent ?? 0;
+  const width = CONTENT_WIDTH - indent;
+
+  doc.font(fonts.bold).fontSize(7.5).fillColor(PALETTE.muted);
+  const labelHeight = label ? 11 : 0;
+  doc.font(fonts.regular).fontSize(9.5).fillColor(PALETTE.text);
+  const height = doc.heightOfString(text, { width, lineGap: 2 });
+
+  ensureSpace(doc, height + labelHeight + 8);
+
+  if (label) {
+    doc
+      .font(fonts.bold)
+      .fontSize(7.5)
+      .fillColor(PALETTE.muted)
+      .text(label.toUpperCase(), MARGIN + indent, doc.y, {
+        width,
+        characterSpacing: 0.4,
+      });
+    doc.y += 1;
+  }
+  doc
+    .font(fonts.regular)
+    .fontSize(9.5)
+    .fillColor(PALETTE.text)
+    .text(text, MARGIN + indent, doc.y, { width, lineGap: 2 });
+  doc.y += 7;
+}
+
+function entryTitle(doc: PDFKit.PDFDocument, fonts: Fonts, title: string): void {
+  ensureSpace(doc, 40);
+  doc
+    .font(fonts.bold)
+    .fontSize(10.5)
+    .fillColor(PALETTE.text)
+    .text(title, MARGIN, doc.y, { width: CONTENT_WIDTH });
+  doc.y += 3;
+}
+
+function drawKeyInsights(
+  doc: PDFKit.PDFDocument,
+  fonts: Fonts,
+  payload: PdfReportPayload,
+): void {
+  const insights = payload.keyInsights ?? [];
+  if (insights.length === 0) return;
+
+  sectionHeading(doc, fonts, "Key insights", 90);
+  for (const insight of insights) {
+    entryTitle(doc, fonts, insight.title);
+    paragraph(doc, fonts, "What's in the conversation", insight.observation);
+    paragraph(doc, fonts, "One way to read it", insight.interpretation);
+    paragraph(doc, fonts, "What this can't tell you", insight.uncertainty);
+    doc.y += 6;
+  }
+}
+
+function drawProfiles(
+  doc: PDFKit.PDFDocument,
+  fonts: Fonts,
+  payload: PdfReportPayload,
+): void {
+  const profiles = payload.profiles ?? [];
+  if (profiles.length === 0) return;
+
+  sectionHeading(doc, fonts, "Communication profiles", 110);
+  doc
+    .font(fonts.regular)
+    .fontSize(8.5)
+    .fillColor(PALETTE.muted)
+    .text(
+      "Descriptions of observable messaging behaviour, not of anyone's character.",
+      MARGIN,
+      doc.y,
+      { width: CONTENT_WIDTH },
+    );
+  doc.y += 10;
+
+  profiles.forEach((profile, index) => {
+    ensureSpace(doc, 70);
+    const color = SERIES[index % SERIES.length]!;
+    doc.circle(MARGIN + 4, doc.y + 6, 4).fill(color);
+    doc
+      .font(fonts.bold)
+      .fontSize(11)
+      .fillColor(PALETTE.text)
+      .text(profile.name, MARGIN + 14, doc.y, { width: CONTENT_WIDTH - 14 });
+    doc.y += 2;
+    paragraph(doc, fonts, "", profile.headline, { indent: 14 });
+
+    for (const trait of profile.traits) {
+      ensureSpace(doc, 26);
+      doc
+        .font(fonts.bold)
+        .fontSize(9)
+        .fillColor(PALETTE.text)
+        .text(`${trait.label}: `, MARGIN + 14, doc.y, { continued: true })
+        .font(fonts.regular)
+        .fillColor(PALETTE.primary)
+        .text(trait.level.replace("-", " "));
+      doc
+        .font(fonts.regular)
+        .fontSize(8.5)
+        .fillColor(PALETTE.muted)
+        .text(trait.basis, MARGIN + 14, doc.y, { width: CONTENT_WIDTH - 14, lineGap: 1.5 });
+      doc.y += 5;
+    }
+
+    if (profile.strengths.length > 0) {
+      paragraph(doc, fonts, "Works well", profile.strengths.join(" · "), { indent: 14 });
+    }
+    if (profile.watchouts.length > 0) {
+      paragraph(doc, fonts, "Worth attention", profile.watchouts.join(" · "), {
+        indent: 14,
+      });
+    }
+    doc.y += 6;
+  });
+}
+
+function drawInteraction(
+  doc: PDFKit.PDFDocument,
+  fonts: Fonts,
+  payload: PdfReportPayload,
+): void {
+  const patterns = payload.interactionPatterns ?? [];
+  if (patterns.length === 0) return;
+
+  sectionHeading(doc, fonts, "Interaction patterns", 90);
+  for (const pattern of patterns) {
+    entryTitle(doc, fonts, pattern.title);
+    paragraph(doc, fonts, "What's in the conversation", pattern.observation);
+    paragraph(doc, fonts, "One way to read it", pattern.interpretation);
+    doc.y += 6;
+  }
+}
+
+function drawTimeline(
+  doc: PDFKit.PDFDocument,
+  fonts: Fonts,
+  payload: PdfReportPayload,
+): void {
+  const changes = payload.timelineChanges ?? [];
+  if (changes.length === 0) return;
+
+  sectionHeading(doc, fonts, "What changed over time", 90);
+  for (const change of changes) {
+    entryTitle(doc, fonts, change.title);
+    paragraph(doc, fonts, "Earlier", change.earlier);
+    paragraph(doc, fonts, "Recently", change.later);
+    doc.y += 6;
+  }
+}
+
+function drawConflicts(
+  doc: PDFKit.PDFDocument,
+  fonts: Fonts,
+  payload: PdfReportPayload,
+): void {
+  const conflicts = payload.conflicts ?? [];
+  if (conflicts.length === 0) return;
+
+  sectionHeading(doc, fonts, "Difficult moments", 90);
+  doc
+    .font(fonts.regular)
+    .fontSize(8.5)
+    .fillColor(PALETTE.muted)
+    .text(
+      "Exchanges a local heuristic shortlisted and the analysis then read. A disagreement is not evidence of a problem with anyone.",
+      MARGIN,
+      doc.y,
+      { width: CONTENT_WIDTH },
+    );
+  doc.y += 10;
+
+  for (const conflict of conflicts) {
+    entryTitle(doc, fonts, `${conflict.title} — ${conflict.resolution}`);
+    paragraph(doc, fonts, "What it starts from", conflict.trigger);
+    paragraph(doc, fonts, "Repair", conflict.repair);
+    doc.y += 6;
+  }
+}
+
+function drawSuggestions(
+  doc: PDFKit.PDFDocument,
+  fonts: Fonts,
+  payload: PdfReportPayload,
+): void {
+  const suggestions = payload.suggestions ?? [];
+  if (suggestions.length === 0) return;
+
+  sectionHeading(doc, fonts, "Suggestions", 80);
+  for (const suggestion of suggestions) {
+    entryTitle(doc, fonts, suggestion.title);
+    paragraph(doc, fonts, "Try", suggestion.doThis);
+    paragraph(doc, fonts, "Avoid", suggestion.avoidThis);
+    doc.y += 6;
+  }
+}
+
+function drawEvidence(
+  doc: PDFKit.PDFDocument,
+  fonts: Fonts,
+  payload: PdfReportPayload,
+): void {
+  const groups = payload.evidence ?? [];
+  if (groups.length === 0) return;
+
+  sectionHeading(doc, fonts, "Evidence excerpts", 100);
+  doc
+    .font(fonts.regular)
+    .fontSize(8.5)
+    .fillColor(PALETTE.muted)
+    .text(
+      "A small number of quoted exchanges, included so the written sections can be checked. This is not the conversation.",
+      MARGIN,
+      doc.y,
+      { width: CONTENT_WIDTH },
+    );
+  doc.y += 10;
+
+  for (const group of groups) {
+    ensureSpace(doc, 50);
+    doc
+      .font(fonts.bold)
+      .fontSize(8)
+      .fillColor(PALETTE.muted)
+      .text(group.label, MARGIN, doc.y, { width: CONTENT_WIDTH });
+    doc.y += 2;
+
+    for (const line of group.lines) {
+      doc.font(fonts.regular).fontSize(9);
+      const text = `${line.speaker}: ${line.text}`;
+      const height = doc.heightOfString(text, {
+        width: CONTENT_WIDTH - 14,
+        lineGap: 1.5,
+      });
+      ensureSpace(doc, height + 6);
+      doc
+        .moveTo(MARGIN + 2, doc.y)
+        .lineTo(MARGIN + 2, doc.y + height)
+        .lineWidth(2)
+        .strokeColor(PALETTE.border)
+        .stroke();
+      doc
+        .font(fonts.regular)
+        .fontSize(9)
+        .fillColor(PALETTE.text)
+        .text(text, MARGIN + 14, doc.y, { width: CONTENT_WIDTH - 14, lineGap: 1.5 });
+      doc.y += 4;
+    }
+    doc.y += 8;
+  }
+}
+
+function drawConsent(
+  doc: PDFKit.PDFDocument,
+  fonts: Fonts,
+  payload: PdfReportPayload,
+): void {
+  const consent = payload.consent;
+  if (!consent) return;
+
+  sectionHeading(doc, fonts, "Consent record", 70);
+  for (const participant of consent.participants) {
+    ensureSpace(doc, 18);
+    doc
+      .font(fonts.regular)
+      .fontSize(9.5)
+      .fillColor(PALETTE.text)
+      .text(`${participant.name} — ${participant.status}`, MARGIN, doc.y, {
+        width: CONTENT_WIDTH,
+      });
+    doc.y += 3;
+  }
+  doc.y += 4;
+  doc
+    .font(fonts.regular)
+    .fontSize(8.5)
+    .fillColor(PALETTE.muted)
+    .text(
+      `Consent document version ${consent.documentVersion}. These are consent records kept by the application; they are not qualified electronic signatures.`,
+      MARGIN,
+      doc.y,
+      { width: CONTENT_WIDTH, lineGap: 1.5 },
+    );
+  doc.y += 14;
 }
 
 function sectionHeading(
@@ -150,12 +461,26 @@ function drawCover(doc: PDFKit.PDFDocument, fonts: Fonts, payload: PdfReportPayl
     );
 
   const generated = Date.parse(payload.generatedAt);
+  const generatedLabel = Number.isFinite(generated)
+    ? new Intl.DateTimeFormat("en-GB", {
+        dateStyle: "long",
+        timeStyle: "short",
+        timeZone: "UTC",
+      }).format(new Date(generated))
+    : payload.generatedAt;
+
   doc
     .font(fonts.regular)
     .fontSize(9)
     .fillColor("#BFDBFE")
     .text(
-      `Report generated ${Number.isFinite(generated) ? new Intl.DateTimeFormat("en-GB", { dateStyle: "long", timeStyle: "short", timeZone: "UTC" }).format(new Date(generated)) : payload.generatedAt} UTC`,
+      [
+        `Report generated ${generatedLabel} UTC`,
+        payload.analysisType,
+        payload.appVersion ? `Conversation Analyzer ${payload.appVersion}` : null,
+      ]
+        .filter(Boolean)
+        .join("  ·  "),
       MARGIN,
       122,
       { width: CONTENT_WIDTH },

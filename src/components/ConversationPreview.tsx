@@ -15,9 +15,11 @@ export interface ConversationPreviewProps {
   gapMinutes: number;
   onGapMinutesChange: (minutes: number) => void;
   onChangeChat: (chatId: string) => void;
-  onContinue: () => void;
+  onContinue?: () => void;
   onStartOver: () => void;
   busy?: boolean;
+  /** The V2 wizard supplies its own continue control further down the page. */
+  hideActions?: boolean;
 }
 
 const GAP_OPTIONS = [
@@ -36,6 +38,7 @@ export function ConversationPreview({
   onContinue,
   onStartOver,
   busy,
+  hideActions,
 }: ConversationPreviewProps) {
   const { general, initiation } = statistics;
 
@@ -198,14 +201,16 @@ export function ConversationPreview({
         </Card>
       ) : null}
 
-      <div className="flex flex-col gap-3 sm:flex-row-reverse">
-        <Button size="lg" onClick={onContinue} disabled={busy} className="sm:min-w-56">
-          Continue to analysis
-        </Button>
-        <Button size="lg" variant="secondary" onClick={onStartOver} disabled={busy}>
-          Cancel
-        </Button>
-      </div>
+      {hideActions ? null : (
+        <div className="flex flex-col gap-3 sm:flex-row-reverse">
+          <Button size="lg" onClick={onContinue} disabled={busy} className="sm:min-w-56">
+            Continue to analysis
+          </Button>
+          <Button size="lg" variant="secondary" onClick={onStartOver} disabled={busy}>
+            Cancel
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

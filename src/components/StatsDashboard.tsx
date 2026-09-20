@@ -27,6 +27,11 @@ export interface StatsDashboardProps {
   analysis: Analysis | null;
   pseudonyms: PseudonymMap;
   conversationTitle: string;
+  /**
+   * Replaces the built-in export card. The V2 results page supplies a richer
+   * one that can reach the full analysis, not just the statistics.
+   */
+  exportSlot?: React.ReactNode;
 }
 
 /** Plain-text summary used by Share / Copy. Aggregates only, never messages. */
@@ -68,6 +73,7 @@ export function StatsDashboard({
   analysis,
   pseudonyms,
   conversationTitle,
+  exportSlot,
 }: StatsDashboardProps) {
   const [pdfFile, setPdfFile] = React.useState<File | null>(null);
   const participants = statistics.participants.slice(0, 4);
@@ -290,6 +296,7 @@ export function StatsDashboard({
       </Card>
 
       {/* Export -------------------------------------------------------- */}
+      {exportSlot ?? (
       <Card className="no-print">
         <CardBody>
           <SectionTitle>Export &amp; share</SectionTitle>
@@ -303,6 +310,7 @@ export function StatsDashboard({
           </div>
         </CardBody>
       </Card>
+      )}
     </div>
   );
 }

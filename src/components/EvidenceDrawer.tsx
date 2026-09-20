@@ -2,28 +2,42 @@
 
 import * as React from "react";
 import type { Evidence } from "@/lib/ai/schema";
-import type { NormalizedMessage } from "@/lib/model/message";
-import { MEDIA_PLACEHOLDER, MessageType } from "@/lib/model/message";
 import { formatDateTime, cx } from "@/lib/client/format";
 import { seriesColor } from "@/lib/palette";
 
+/**
+ * One quoted message, as the evidence view needs it.
+ *
+ * Deliberately not the full message model: evidence is rendered from what the
+ * server still holds after a run, which is the quoted exchanges and nothing
+ * else.
+ */
+export interface EvidenceMessageView {
+  id: string;
+  senderName: string;
+  /** Wall-clock time, `YYYY-MM-DDTHH:mm:ss`. */
+  iso: string;
+  text: string;
+  /** Index into the series palette, so colours match the rest of the app. */
+  colorIndex: number;
+}
+
+export type EvidenceLookup = ReadonlyMap<string, EvidenceMessageView>;
+
 export interface EvidenceDrawerProps {
   evidence: Evidence[];
-  /** Resolves a message id to the real message held locally. */
-  messages: ReadonlyMap<string, NormalizedMessage>;
-  /** Participant id → colour index, so quotes match the rest of the app. */
-  colorIndex: ReadonlyMap<string, number>;
+  messages: EvidenceLookup;
 }
 
 /**
  * Evidence view.
  *
- * Quotes are rendered from the messages held in this browser, looked up by id,
- * rather than from text the model echoed back - so an excerpt shown here is
- * always something that was really in the export. Only the cited messages are
- * shown, never the surrounding conversation.
+ * Quotes are rendered from stored messages looked up by id, rather than from
+ * text the model echoed back - so an excerpt shown here is always something
+ * that was really in the export. Only the cited exchanges are shown, never the
+ * conversation.
  */
-export function EvidenceDrawer({ evidence, messages, colorIndex }: EvidenceDrawerProps) {
+export function EvidenceDrawer({ evidence, messages }: EvidenceDrawerProps) {
   const [open, setOpen] = React.useState(false);
 
   const resolved = React.useMemo(
@@ -32,7 +46,7 @@ export function EvidenceDrawer({ evidence, messages, colorIndex }: EvidenceDrawe
         excerpt: entry.excerpt,
         messages: entry.messageIds
           .map((id) => messages.get(id))
-          .filter((message): message is NormalizedMessage => message !== undefined),
+          .filter((message): message is EvidenceMessageView => message !== undefined),
       })),
     [evidence, messages],
   );
@@ -77,33 +91,24 @@ export function EvidenceDrawer({ evidence, messages, colorIndex }: EvidenceDrawe
                       <span
                         aria-hidden="true"
                         className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
-                        style={{
-                          backgroundColor: seriesColor(
-                            colorIndex.get(message.senderId) ?? 0,
-                          ),
-                        }}
+                        style={{ backgroundColor: seriesColor(message.colorIndex) }}
                       />
                       <div className="min-w-0 flex-1">
                         <p className="flex flex-wrap items-baseline gap-x-2 text-xs text-muted">
                           <span className="font-medium text-ink-soft">
                             {message.senderName}
                           </span>
-                          <span>{formatDateTime(message.localIso)}</span>
-                          {message.edited ? <span>· edited</span> : null}
+                          <span>{formatDateTime(message.iso)}</span>
                         </p>
                         <p className="mt-0.5 whitespace-pre-wrap break-words text-sm leading-relaxed text-ink">
-                          {message.text.length > 0
-                            ? message.text
-                            : describeMedia(message)}
+                          {message.text.length > 0 ? message.text : "(no text)"}
                         </p>
                       </div>
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p className="text-sm italic leading-relaxed text-muted">
-                  {entry.excerpt}
-                </p>
+                <p className="text-sm italic leading-relaxed text-muted">{entry.excerpt}</p>
               )}
 
               {entry.messages.length > 0 && entry.excerpt.trim().length > 0 ? (
@@ -118,20 +123,4 @@ export function EvidenceDrawer({ evidence, messages, colorIndex }: EvidenceDrawe
       ) : null}
     </div>
   );
-}
-
-function describeMedia(message: NormalizedMessage): string {
-  if (!message.hasMedia) return "(no text)";
-  const kind = message.media[0]?.kind;
-  const label =
-    kind === MessageType.IMAGE
-      ? "photo"
-      : kind === MessageType.AUDIO
-        ? "voice message"
-        : kind === MessageType.VIDEO
-          ? "video"
-          : kind === MessageType.STICKER
-            ? "sticker"
-            : "attachment";
-  return `[${label}] ${MEDIA_PLACEHOLDER}`;
 }

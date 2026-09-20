@@ -1,18 +1,16 @@
 "use client";
 
 import * as React from "react";
-import type { NormalizedMessage } from "@/lib/model/message";
 import type { InsightCardModel } from "@/lib/client/insights";
 import { cx } from "@/lib/client/format";
 import { ConfidenceBadge, Badge } from "./ui/Badge";
-import { EvidenceDrawer } from "./EvidenceDrawer";
+import { EvidenceDrawer, type EvidenceLookup } from "./EvidenceDrawer";
 
 export interface InsightCardProps {
   card: InsightCardModel;
   index: number;
   total: number;
-  messages: ReadonlyMap<string, NormalizedMessage>;
-  colorIndex: ReadonlyMap<string, number>;
+  messages: EvidenceLookup;
 }
 
 const KIND_ACCENT: Record<InsightCardModel["kind"], string> = {
@@ -32,7 +30,7 @@ const KIND_ACCENT: Record<InsightCardModel["kind"], string> = {
  * observed, what it might mean, and what the data cannot settle each get their
  * own labelled block, so interpretation is never mistaken for fact.
  */
-export function InsightCard({ card, index, total, messages, colorIndex }: InsightCardProps) {
+export function InsightCard({ card, index, total, messages }: InsightCardProps) {
   return (
     <article
       className="animate-card-enter flex h-full flex-col overflow-hidden rounded-xl border border-line bg-white surface-raised"
@@ -112,11 +110,7 @@ export function InsightCard({ card, index, total, messages, colorIndex }: Insigh
         </div>
 
         <div className="mt-auto">
-          <EvidenceDrawer
-            evidence={card.evidence}
-            messages={messages}
-            colorIndex={colorIndex}
-          />
+          <EvidenceDrawer evidence={card.evidence} messages={messages} />
         </div>
       </div>
     </article>

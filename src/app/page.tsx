@@ -11,8 +11,12 @@ const STEPS = [
     body: "Message counts, response times, who starts conversations and when you both talk are calculated on your device, exactly, from every message.",
   },
   {
+    title: "Ask",
+    body: "Everyone else in the conversation is sent a consent request explaining exactly what will be processed. Nothing runs until they agree.",
+  },
+  {
     title: "Understand",
-    body: "Selected excerpts are analysed for recurring patterns, each one shown with the messages it came from.",
+    body: "Selected excerpts are analysed for recurring patterns, communication profiles, change over time and difficult moments — each one shown with the messages it came from.",
   },
 ];
 
@@ -37,12 +41,26 @@ export default function LandingPage() {
             </span>
             Conversation Analyzer
           </span>
-          <Link
-            href="/privacy"
-            className="text-sm text-muted underline-offset-4 hover:text-ink hover:underline"
-          >
-            Privacy
-          </Link>
+          <nav aria-label="Main" className="flex items-center gap-4 text-sm">
+            <Link
+              href="/pricing"
+              className="text-muted underline-offset-4 hover:text-ink hover:underline"
+            >
+              Pricing
+            </Link>
+            <Link
+              href="/analyses"
+              className="text-muted underline-offset-4 hover:text-ink hover:underline"
+            >
+              Analyses
+            </Link>
+            <Link
+              href="/privacy"
+              className="text-muted underline-offset-4 hover:text-ink hover:underline"
+            >
+              Privacy
+            </Link>
+          </nav>
         </div>
       </header>
 
@@ -68,12 +86,12 @@ export default function LandingPage() {
                   </Button>
                 </Link>
                 <p className="text-sm text-muted sm:ml-2">
-                  Free · no account needed
+                  Free to start · no account needed
                 </p>
               </div>
               <p className="mt-6 max-w-xl text-sm leading-relaxed text-muted">
-                Your conversation is analyzed privately. The MVP supports text-only
-                Telegram exports.
+                Your conversation is analyzed privately, and only after everyone in it
+                has agreed. This build supports text-only Telegram exports.
               </p>
             </div>
 
@@ -102,7 +120,7 @@ export default function LandingPage() {
         {/* How it works */}
         <section className="app-container py-16">
           <h2 className="text-2xl font-semibold tracking-tight">How it works</h2>
-          <ol className="mt-8 grid gap-6 sm:grid-cols-3">
+          <ol className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {STEPS.map((step, index) => (
               <li key={step.title} className="border-t border-line pt-5">
                 <span className="text-sm font-semibold text-brand-600">
@@ -146,15 +164,18 @@ export default function LandingPage() {
                 <li className="flex gap-3">
                   <span aria-hidden="true" className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" />
                   <span>
-                    Nothing is stored on the server: there is no database and no
-                    account. Results live in your browser tab until you close it.
+                    The server keeps the statistics, the report and the exchanges the
+                    report quotes. Every other excerpt is deleted once the analysis
+                    finishes, and deleting an analysis removes the rest. There is no
+                    account — your analyses are tied to a cookie in this browser.
                   </span>
                 </li>
                 <li className="flex gap-3">
                   <span aria-hidden="true" className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" />
                   <span>
-                    A conversation involves other people. Only upload conversations you
-                    are authorised to process.
+                    A conversation involves other people, so they are asked. Each
+                    participant gets a consent request they can decline or withdraw,
+                    and the analysis does not run until they have agreed.
                   </span>
                 </li>
               </ul>
@@ -187,7 +208,7 @@ export default function LandingPage() {
 
       <footer className="border-t border-line">
         <div className="app-container flex flex-col gap-2 py-8 text-sm text-muted sm:flex-row sm:items-center sm:justify-between">
-          <p>Conversation Analyzer · text-only MVP</p>
+          <p>Conversation Analyzer · text-only</p>
           <p className="text-xs text-faint">
             Analysis is interpretation, not a psychological assessment.
           </p>

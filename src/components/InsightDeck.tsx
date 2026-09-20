@@ -1,22 +1,21 @@
 "use client";
 
 import * as React from "react";
-import type { NormalizedMessage } from "@/lib/model/message";
 import type { InsightCardModel } from "@/lib/client/insights";
 import { cx } from "@/lib/client/format";
 import { Button } from "./ui/Button";
 import { InsightCard } from "./InsightCard";
+import type { EvidenceLookup } from "./EvidenceDrawer";
 
 export interface InsightDeckProps {
   primary: InsightCardModel[];
   extra: InsightCardModel[];
-  messages: ReadonlyMap<string, NormalizedMessage>;
-  colorIndex: ReadonlyMap<string, number>;
+  messages: EvidenceLookup;
 }
 
 const SWIPE_THRESHOLD = 48;
 
-export function InsightDeck({ primary, extra, messages, colorIndex }: InsightDeckProps) {
+export function InsightDeck({ primary, extra, messages }: InsightDeckProps) {
   const [showAll, setShowAll] = React.useState(false);
   const [index, setIndex] = React.useState(0);
   const touchStart = React.useRef<{ x: number; y: number } | null>(null);
@@ -96,7 +95,6 @@ export function InsightDeck({ primary, extra, messages, colorIndex }: InsightDec
           index={index}
           total={total}
           messages={messages}
-          colorIndex={colorIndex}
         />
       </div>
 
