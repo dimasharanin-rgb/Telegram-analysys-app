@@ -230,6 +230,17 @@ export class ClaudeAnalysisService implements AIAnalysisService {
         options.signal ? { signal: options.signal } : undefined,
       );
     } catch (error) {
+      // The SDK validates structured output against the schema itself and
+      // throws synchronously on a violation - a string over its max length,
+      // say - rather than returning it for us to inspect. Left alone, that
+      // throw skips the repair retry entirely and kills the whole run on a
+      // mistake the model can usually just be asked to fix. Route it into
+      // the same ok:false path a validation failure we caught ourselves
+      // would take.
+      const schemaProblem = describeStructuredOutputFailure(error);
+      if (schemaProblem !== null) {
+        return { ok: false, problem: schemaProblem };
+      }
       throw translateProviderError(error);
     }
 
@@ -299,6 +310,35 @@ function describeIssues(error: z.ZodError): string {
     .slice(0, 5)
     .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
     .join("; ");
+}
+
+/**
+ * Recognises the SDK's own "the response didn't match the schema" throw and
+ * turns it into the same short problem description `describeIssues` produces,
+ * so it can go through the ordinary repair-retry path instead of failing the
+ * call outright.
+ *
+ * The SDK wraps this twice - once in the zod helper, once again in its own
+ * response parser - so the useful part (the actual Zod issues) is buried
+ * after a "Validation issues:" marker inside a stringified error. A plain
+ * JSON-parse failure at the same point carries no such marker; either way,
+ * returning null here means "not this - let the normal error path handle it".
+ */
+function describeStructuredOutputFailure(error: unknown): string | null {
+  if (
+    !(error instanceof Anthropic.AnthropicError) ||
+    error instanceof Anthropic.APIError ||
+    !error.message.includes("Failed to parse structured output")
+  ) {
+    return null;
+  }
+  const marker = "Validation issues:";
+  const at = error.message.lastIndexOf(marker);
+  if (at === -1) return "the response was not valid JSON";
+  return error.message
+    .slice(at + marker.length)
+    .trim()
+    .replace(/\s*\n\s*/g, "; ");
 }
 
 /**

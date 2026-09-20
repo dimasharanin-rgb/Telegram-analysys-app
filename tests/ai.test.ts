@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
+import AnthropicSDK from "@anthropic-ai/sdk";
 
 import { AppError } from "@/lib/errors";
 import { resetServerConfigCache } from "@/lib/config";
@@ -145,6 +146,68 @@ describe("ClaudeAnalysisService", () => {
     expect(parse).toHaveBeenCalledTimes(2);
     const repaired = parse.mock.calls[1]![0] as { messages: { content: string }[] };
     expect(repaired.messages[0]!.content).toContain("did not satisfy the required output schema");
+  });
+
+  it("repairs when the SDK's own structured-output check rejects the response", async () => {
+    // The SDK validates against the schema itself and throws synchronously on
+    // a violation, wrapping its own message twice - this is that shape,
+    // reproduced from a real run where a field came back over its length limit.
+    const sdkRejection = new AnthropicSDK.AnthropicError(
+      [
+        "Failed to parse structured output: Error: Failed to parse structured output: [",
+        '  {"origin":"string","code":"too_big","maximum":900,"inclusive":true,"path":["summary"]}',
+        "]",
+        "Validation issues:",
+        "  - summary: String must contain at most 900 character(s)",
+      ].join("\n"),
+    );
+    const parse = vi.fn();
+    parse.mockRejectedValueOnce(sdkRejection);
+    parse.mockResolvedValueOnce(okResponse(VALID_ANALYSIS));
+    const client = { messages: { parse } } as unknown as Anthropic;
+
+    const result = await new ClaudeAnalysisService(client).analyzeConversation([], CONTEXT);
+
+    expect(result.overview.summary).toContain("steady");
+    expect(parse).toHaveBeenCalledTimes(2);
+    const repaired = parse.mock.calls[1]![0] as { messages: { content: string }[] };
+    expect(repaired.messages[0]!.content).toContain("did not satisfy the required output schema");
+    expect(repaired.messages[0]!.content).toContain("summary");
+    expect(repaired.messages[0]!.content).toContain("900 character");
+  });
+
+  it("still fails cleanly, as AI_INVALID_RESPONSE, if the repair also gets rejected by the SDK", async () => {
+    const sdkRejection = new AnthropicSDK.AnthropicError(
+      "Failed to parse structured output: Error: Failed to parse structured output: [...]\nValidation issues:\n  - summary: String must contain at most 900 character(s)",
+    );
+    const parse = vi.fn();
+    parse.mockRejectedValueOnce(sdkRejection);
+    parse.mockRejectedValueOnce(sdkRejection);
+    const client = { messages: { parse } } as unknown as Anthropic;
+
+    await expect(
+      new ClaudeAnalysisService(client).analyzeConversation([], CONTEXT),
+    ).rejects.toMatchObject({ code: "AI_INVALID_RESPONSE" });
+  });
+
+  it("does not mistake a genuine API failure for a schema problem", async () => {
+    // A real rate-limit error from the SDK is an APIError, not the bare
+    // AnthropicError the structured-output check throws - it must still fail
+    // outright rather than being retried as if the model wrote bad JSON.
+    const rateLimited = AnthropicSDK.APIError.generate(
+      429,
+      { error: { message: "rate limited" } },
+      "rate limited",
+      new Headers(),
+    );
+    const { client, parse } = fakeClient([]);
+    parse.mockReset();
+    parse.mockRejectedValueOnce(rateLimited);
+
+    await expect(
+      new ClaudeAnalysisService(client).analyzeConversation([], CONTEXT),
+    ).rejects.toMatchObject({ code: "AI_RATE_LIMITED" });
+    expect(parse).toHaveBeenCalledTimes(1);
   });
 
   it("gives up with a safe error after two failed attempts", async () => {
