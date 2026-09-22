@@ -43,6 +43,14 @@ import {
   type ProfileFindings,
   type TimelineFindings,
 } from "@/lib/ai/modules/schemas";
+import {
+  removeCrossModuleEcho,
+  tidyConflicts,
+  tidyEmotional,
+  tidyInteraction,
+  tidyProfiles,
+  tidyTimeline,
+} from "@/lib/ai/modules/sanitise";
 import type { AIAnalysisService, UsageTotals } from "@/lib/ai/types";
 import { runAnalysisPipeline } from "./run";
 
@@ -242,24 +250,51 @@ export async function runModularAnalysis(
     step += 1;
     emit("validating", step);
 
+    // Evidence first, then prose, then repetition - in that order, because
+    // deduping compares the cleaned text.
+    const cleanedBase = sanitiseAnalysis(base.analysis, knownIds);
+
+    const cleanedInteraction = interaction
+      ? tidyInteraction({
+          ...interaction,
+          patterns: pruneUnknownEvidence(interaction.patterns, knownIds),
+        })
+      : null;
+    const cleanedEmotional = emotional
+      ? tidyEmotional({
+          ...emotional,
+          observations: pruneUnknownEvidence(emotional.observations, knownIds),
+        })
+      : null;
+    const cleanedTimeline = timeline
+      ? tidyTimeline({
+          ...timeline,
+          changes: pruneUnknownEvidence(timeline.changes, knownIds),
+        })
+      : null;
+
+    // Sections the reader meets later yield to the ones they have already
+    // read, so one observation is not restated in three places.
+    const deduped = removeCrossModuleEcho({
+      basePatternStatements: cleanedBase.patterns.map(
+        (pattern) => `${pattern.title} ${pattern.observation}`,
+      ),
+      interaction: cleanedInteraction,
+      emotional: cleanedEmotional,
+      timeline: cleanedTimeline,
+    });
+
     const result: AnalysisResultV2 = {
       version: ANALYSIS_RESULT_VERSION,
       generatedAt: new Date().toISOString(),
       modules: selected,
       strategy: base.strategy,
       confidence: base.analysis.overview.confidence,
-      base: sanitiseAnalysis(base.analysis, knownIds),
-      interaction: interaction
-        ? { ...interaction, patterns: pruneUnknownEvidence(interaction.patterns, knownIds) }
-        : null,
-      emotional: emotional
-        ? {
-            ...emotional,
-            observations: pruneUnknownEvidence(emotional.observations, knownIds),
-          }
-        : null,
+      base: cleanedBase,
+      interaction: deduped.interaction,
+      emotional: deduped.emotional,
       conflicts: conflicts
-        ? {
+        ? tidyConflicts({
             ...conflicts,
             conflicts: pruneUnknownEvidence(
               conflicts.conflicts.filter((entry) =>
@@ -269,13 +304,11 @@ export async function runModularAnalysis(
               ),
               knownIds,
             ),
-          }
+          })
         : null,
-      timeline: timeline
-        ? { ...timeline, changes: pruneUnknownEvidence(timeline.changes, knownIds) }
-        : null,
+      timeline: deduped.timeline,
       profiles: profiles
-        ? {
+        ? tidyProfiles({
             profiles: pruneUnknownEvidence(
               // A profile for a participant we never sent is not a profile.
               profiles.profiles.filter((profile) =>
@@ -283,7 +316,7 @@ export async function runModularAnalysis(
               ),
               knownIds,
             ),
-          }
+          })
         : null,
     };
 

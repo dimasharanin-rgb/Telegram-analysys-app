@@ -5,6 +5,7 @@ import AnthropicSDK from "@anthropic-ai/sdk";
 import { AppError } from "@/lib/errors";
 import { resetServerConfigCache } from "@/lib/config";
 import { ClaudeAnalysisService, recoverJson, translateProviderError } from "@/lib/ai/claude";
+import { containsInternalId } from "@/lib/ai/prose";
 import {
   analysisRequestSchema,
   analysisSchema,
@@ -310,6 +311,71 @@ describe("output sanitisation", () => {
     const sanitised = sanitiseAnalysis(VALID_ANALYSIS, new Set(["1", "2"]));
     expect(sanitised.patterns[0]!.evidence[0]!.messageIds).toEqual(["1"]);
     expect(sanitised.strengths[0]!.evidence[0]!.messageIds).toEqual(["2"]);
+  });
+
+  it("hides ids the model pasted into prose without breaking the mapping", () => {
+    const leaky: Analysis = {
+      ...VALID_ANALYSIS,
+      overview: {
+        ...VALID_ANALYSIS.overview,
+        summary: "It's important to note that replies are fast ([1], [2]).",
+      },
+      patterns: [
+        {
+          ...VALID_ANALYSIS.patterns[0]!,
+          observation: "She answers within a minute ([1]-[2]).",
+          interpretation: "One reading is that the subject matters to her [1].",
+        },
+      ],
+    };
+
+    const sanitised = sanitiseAnalysis(leaky, new Set(["1", "2"]));
+
+    // Nothing a reader sees carries an identifier...
+    expect(containsInternalId(sanitised.overview.summary)).toBe(false);
+    expect(containsInternalId(sanitised.patterns[0]!.observation)).toBe(false);
+    expect(containsInternalId(sanitised.patterns[0]!.interpretation)).toBe(false);
+    expect(sanitised.overview.summary).toBe("Replies are fast.");
+    expect(sanitised.patterns[0]!.observation).toBe("She answers within a minute.");
+
+    // ...while the evidence still points at the real messages, which is what
+    // makes the evidence drawer work.
+    expect(sanitised.patterns[0]!.evidence[0]!.messageIds).toEqual(["1"]);
+  });
+
+  it("collapses two patterns that state the same finding twice", () => {
+    const repetitive: Analysis = {
+      ...VALID_ANALYSIS,
+      patterns: [
+        {
+          ...VALID_ANALYSIS.patterns[0]!,
+          title: "Longer messages during conflict",
+          observation: "You write longer messages during conflict.",
+          confidence: "low",
+          evidence: [],
+        },
+        {
+          ...VALID_ANALYSIS.patterns[0]!,
+          title: "Message length during conflict",
+          observation: "Message length increases during conflicts.",
+          confidence: "high",
+          evidence: [{ messageIds: ["1"], excerpt: "a long one" }],
+        },
+        {
+          ...VALID_ANALYSIS.patterns[0]!,
+          title: "Evening conversations",
+          observation: "Most exchanges begin after 18:00.",
+          evidence: [],
+        },
+      ],
+    };
+
+    const sanitised = sanitiseAnalysis(repetitive, new Set(["1"]));
+
+    expect(sanitised.patterns).toHaveLength(2);
+    // The better-evidenced version of the duplicated finding is the survivor.
+    expect(sanitised.patterns[0]!.confidence).toBe("high");
+    expect(sanitised.patterns[1]!.observation).toContain("18:00");
   });
 
   it("keeps an evidence entry that still has a usable excerpt", () => {

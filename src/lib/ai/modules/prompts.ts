@@ -13,6 +13,8 @@
  */
 
 import { ANALYSIS_PRINCIPLES, renderExcerpts, renderStatistics } from "@/lib/ai/prompts";
+import { BREVITY_BUDGET, languageDirective } from "@/lib/ai/output-rules";
+import { resolveLanguage } from "@/lib/analysis/language";
 import type { Excerpt, StatisticsDigest } from "@/lib/ai/schema";
 import type { ParticipantRef } from "@/lib/ai/types";
 import { CATEGORY_DESCRIPTIONS, INDICATOR_CATEGORIES } from "@/lib/stats/lexicon";
@@ -122,7 +124,7 @@ export function renderConflictCandidates(advanced: AdvancedDigest): string {
         `signals: ${candidate.signals.join("; ") || "none recorded"}; ` +
         `silence afterwards ${formatSeconds(candidate.followedBySilenceSeconds)}; ` +
         `apology in the next conversation: ${candidate.repairFollowed ? "yes" : "no"}; ` +
-        `message ids: ${candidate.messageIds.slice(0, 40).join(", ")}`,
+        `${candidate.messageIds.length} messages`,
     );
   }
   return lines.join("\n");
@@ -133,6 +135,8 @@ export interface ModuleContext {
   statistics: StatisticsDigest;
   advanced: AdvancedDigest;
   excerpts: Excerpt[];
+  /** BCP-47 code the report must be written in. */
+  language?: string;
 }
 
 /**
@@ -142,6 +146,10 @@ export interface ModuleContext {
 export function sharedContextBlock(context: ModuleContext): string {
   return [
     ANALYSIS_PRINCIPLES,
+    "",
+    BREVITY_BUDGET,
+    "",
+    languageDirective(resolveLanguage(context.language)),
     "",
     `PARTICIPANTS: ${context.participants.map((p) => `${p.label} (${p.id})`).join(", ")}`,
     "",

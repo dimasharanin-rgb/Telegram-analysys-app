@@ -11,6 +11,8 @@
 
 import { z } from "zod";
 
+import { dedupeStatements, stripInternalIds, tidyProse } from "./prose";
+
 /* -------------------------------------------------------------------------
  * Claude output
  * ---------------------------------------------------------------------- */
@@ -205,14 +207,80 @@ export function pruneUnknownEvidence<T extends { evidence: Evidence[] }>(
   }));
 }
 
+/** How strongly a finding is backed, for deciding which duplicate survives. */
+const CONFIDENCE_RANK: Record<Confidence, number> = { high: 3, medium: 2, low: 1 };
+
+/** Cleans the prose in one evidence entry without touching its id mapping. */
+function tidyEvidence(evidence: Evidence[]): Evidence[] {
+  return evidence.map((entry) => ({
+    ...entry,
+    // A quote keeps its wording; it only loses any id the model pasted in.
+    excerpt: stripInternalIds(entry.excerpt),
+  }));
+}
+
+/**
+ * Everything that has to be true of model output before a reader sees it.
+ *
+ * Three passes, in order: drop evidence pointing at messages we never sent,
+ * clean the prose (no internal ids, no filler), then collapse findings that
+ * say the same thing twice. The order matters - deduping reads the cleaned
+ * text, so filler does not make two identical findings look different.
+ */
 export function sanitiseAnalysis(
   analysis: Analysis,
   knownIds: ReadonlySet<string>,
 ): Analysis {
+  const patterns = dedupeStatements(
+    pruneUnknownEvidence(analysis.patterns, knownIds).map((pattern) => ({
+      ...pattern,
+      title: tidyProse(pattern.title),
+      observation: tidyProse(pattern.observation),
+      interpretation: tidyProse(pattern.interpretation),
+      uncertainty: tidyProse(pattern.uncertainty),
+      evidence: tidyEvidence(pattern.evidence),
+    })),
+    {
+      // The observation is the finding; the title is a label for it.
+      statement: (pattern) => `${pattern.title} ${pattern.observation}`,
+      rank: (pattern) =>
+        CONFIDENCE_RANK[pattern.confidence] * 10 + pattern.evidence.length,
+    },
+  );
+
+  const tidyHighlights = (items: Highlight[]): Highlight[] =>
+    dedupeStatements(
+      pruneUnknownEvidence(items, knownIds).map((item) => ({
+        ...item,
+        title: tidyProse(item.title),
+        description: tidyProse(item.description),
+        evidence: tidyEvidence(item.evidence),
+      })),
+      {
+        statement: (item) => `${item.title} ${item.description}`,
+        rank: (item) => item.evidence.length,
+      },
+    );
+
   return {
     ...analysis,
-    patterns: pruneUnknownEvidence(analysis.patterns, knownIds),
-    strengths: pruneUnknownEvidence(analysis.strengths, knownIds),
-    watchouts: pruneUnknownEvidence(analysis.watchouts, knownIds),
+    overview: { ...analysis.overview, summary: tidyProse(analysis.overview.summary) },
+    patterns,
+    strengths: tidyHighlights(analysis.strengths),
+    watchouts: tidyHighlights(analysis.watchouts),
+    suggestions: dedupeStatements(
+      analysis.suggestions.map((suggestion) => ({
+        ...suggestion,
+        title: tidyProse(suggestion.title),
+        description: tidyProse(suggestion.description),
+        do: tidyProse(suggestion.do),
+        avoid: tidyProse(suggestion.avoid),
+      })),
+      { statement: (suggestion) => `${suggestion.title} ${suggestion.description}` },
+    ),
+    recurringTopics: analysis.recurringTopics.map((topic) => ({
+      ...topic,
+      description: tidyProse(topic.description),
+    })),
   };
 }
