@@ -60,6 +60,8 @@ export interface MediaAttachment {
   kind: MessageType;
   mimeType?: string;
   durationSeconds?: number;
+  /** Bytes, where the export records them. Needed to refuse oversized media. */
+  sizeBytes?: number;
   /** Relative path inside the export; never read from disk in the MVP. */
   reference?: string;
   /** Sticker emoji, poll question, contact name - a short non-sensitive label. */

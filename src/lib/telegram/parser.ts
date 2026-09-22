@@ -184,6 +184,9 @@ function classify(message: RawRecord): { type: MessageType; media: MediaAttachme
         ? { durationSeconds: message.duration_seconds }
         : {}),
       ...(isMediaReference(message.file) ? { reference: String(message.file) } : {}),
+      ...(typeof message.file_size === "number" && message.file_size >= 0
+        ? { sizeBytes: message.file_size }
+        : {}),
       ...(str(message.sticker_emoji) ? { label: str(message.sticker_emoji)! } : {}),
       analysis: null,
     });
@@ -191,6 +194,12 @@ function classify(message: RawRecord): { type: MessageType; media: MediaAttachme
     media.push({
       kind: MessageType.IMAGE,
       reference: String(message.photo),
+      // Telegram labels a photo by extension rather than mime type; the
+      // media policy needs one to validate against.
+      mimeType: "image/jpeg",
+      ...(typeof message.file_size === "number" && message.file_size >= 0
+        ? { sizeBytes: message.file_size }
+        : {}),
       analysis: null,
     });
   } else if (isMediaReference(message.file)) {
@@ -198,6 +207,9 @@ function classify(message: RawRecord): { type: MessageType; media: MediaAttachme
       kind: MessageType.FILE,
       reference: String(message.file),
       ...(str(message.mime_type) ? { mimeType: str(message.mime_type)! } : {}),
+      ...(typeof message.file_size === "number" && message.file_size >= 0
+        ? { sizeBytes: message.file_size }
+        : {}),
       ...(str(message.file_name) ? { label: str(message.file_name)! } : {}),
       analysis: null,
     });
