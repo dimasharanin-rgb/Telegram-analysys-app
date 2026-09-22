@@ -194,8 +194,14 @@ test("consent, run, report, evidence and PDF", async ({ page }) => {
   await expect(page.getByText("Who talks more?")).toBeVisible();
   await expect(page.getByText("Who starts conversations?")).toBeVisible();
 
-  const downloadPromise = page.waitForEvent("download");
+  // Export is its own tab in V3, reachable from the header on any tab.
   await page.getByRole("button", { name: "Export PDF" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Export this analysis" }),
+  ).toBeVisible();
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download PDF" }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/^conversation-analysis-.*\.pdf$/);
 
@@ -254,7 +260,7 @@ test("a paid analysis waits for a credit, and checkout grants one", async ({ pag
   await runToReport(page);
 
   // The report carries the modules the paid product unlocks.
-  await expect(page.getByRole("tab", { name: "Profiles" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Profile" })).toBeVisible();
   await page.getByRole("tab", { name: "Difficult moments" }).click();
   await expect(
     page.getByText(/What was shortlisted|No difficult moments were shortlisted/),

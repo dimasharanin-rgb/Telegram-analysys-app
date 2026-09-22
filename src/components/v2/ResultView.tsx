@@ -10,25 +10,41 @@ import { cx, formatDate, formatNumber } from "@/lib/client/format";
 import type { PseudonymMap } from "@/lib/pipeline/payload";
 
 import type { EvidenceLookup, EvidenceMessageView } from "@/components/EvidenceDrawer";
-import { InsightDeck } from "@/components/InsightDeck";
 import { StatsDashboard } from "@/components/StatsDashboard";
 import { Button } from "@/components/ui/Button";
 import { SiteHeader } from "@/components/v2/SiteHeader";
 import { AdviceTab } from "@/components/v2/result/AdviceTab";
 import { ConflictsTab } from "@/components/v2/result/ConflictsTab";
-import { DynamicsTab } from "@/components/v2/result/DynamicsTab";
+import {
+  BalanceMetrics,
+  EmotionalIndicators,
+  HabitTable,
+} from "@/components/v2/result/BehaviourMetrics";
 import { ExportPanel } from "@/components/v2/result/ExportPanel";
+import { InsightsTab } from "@/components/v2/result/InsightsTab";
 import { ProfilesTab } from "@/components/v2/result/ProfilesTab";
 import { TimelineTab } from "@/components/v2/result/TimelineTab";
 
+/**
+ * The reading order of a finished analysis.
+ *
+ * No Dynamics tab: "dynamics" is a category in the data model rather than
+ * something a reader goes looking for, and splitting it out meant "how you
+ * two fit together" was filed away from "what this conversation is like".
+ * Its findings are now in Insights and its measurements in Profile and Stats.
+ *
+ * Export is a destination rather than a footnote. It used to be a card at the
+ * bottom of the Stats tab, which is why it looked like the feature had been
+ * removed.
+ */
 const TABS = [
   { id: "insights", label: "Insights" },
-  { id: "profiles", label: "Profiles" },
-  { id: "dynamics", label: "Dynamics" },
   { id: "timeline", label: "Timeline" },
   { id: "conflicts", label: "Difficult moments" },
+  { id: "profiles", label: "Profile" },
   { id: "stats", label: "Stats" },
-  { id: "advice", label: "Advice" },
+  { id: "advice", label: "Suggestions" },
+  { id: "export", label: "Export" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -122,11 +138,18 @@ export function ResultView({
                 {product ? ` · ${product.name}` : ""}
               </p>
             </div>
-            <Link href="/analyses">
-              <Button variant="secondary" size="sm">
-                All analyses
+            <div className="flex shrink-0 items-center gap-2">
+              {/* The export lives on its own tab; this is the signpost to it,
+                  so the feature is visible from wherever the reader is. */}
+              <Button size="sm" onClick={() => setTab("export")}>
+                Export PDF
               </Button>
-            </Link>
+              <Link href="/analyses">
+                <Button variant="secondary" size="sm">
+                  All analyses
+                </Button>
+              </Link>
+            </div>
           </div>
         </div>
 
@@ -164,36 +187,29 @@ export function ResultView({
           className={tab === "stats" ? "mx-auto max-w-4xl" : "mx-auto max-w-3xl"}
         >
           {tab === "insights" ? (
-            <div className="mx-auto max-w-2xl">
-              <p className="mb-6 text-sm leading-relaxed text-muted">
-                One pattern per card, each labelled as a measured figure or an AI
-                interpretation. Open the evidence to see the messages behind it.
-              </p>
-              <InsightDeck
-                primary={deck.primary}
-                extra={deck.extra}
-                messages={messages}
-              />
-            </div>
+            <InsightsTab
+              deck={deck}
+              interaction={result.result.interaction}
+              emotional={result.result.emotional}
+              messages={messages}
+            />
           ) : null}
 
           {tab === "profiles" ? (
-            <ProfilesTab
-              profiles={result.result.profiles}
-              nameFor={nameFor}
-              colorIndexFor={colorIndexFor}
-              messages={messages}
-            />
-          ) : null}
-
-          {tab === "dynamics" ? (
-            <DynamicsTab
-              interaction={result.result.interaction}
-              emotional={result.result.emotional}
-              advanced={statistics.advanced}
-              participants={statisticsParticipants}
-              messages={messages}
-            />
+            <div className="space-y-10">
+              <ProfilesTab
+                profiles={result.result.profiles}
+                nameFor={nameFor}
+                colorIndexFor={colorIndexFor}
+                messages={messages}
+              />
+              {/* Measured habits sit under the written profile they describe. */}
+              <BalanceMetrics advanced={statistics.advanced} />
+              <HabitTable
+                advanced={statistics.advanced}
+                participants={statisticsParticipants}
+              />
+            </div>
           ) : null}
 
           {tab === "timeline" ? (
@@ -213,19 +229,29 @@ export function ResultView({
           ) : null}
 
           {tab === "stats" ? (
-            <StatsDashboard
-              statistics={statistics.base}
-              analysis={result.result.base}
+            <div className="space-y-8">
+              <StatsDashboard
+                statistics={statistics.base}
+                analysis={result.result.base}
+                pseudonyms={pseudonyms}
+                conversationTitle={result.conversation.title}
+                // Export has its own tab now; the dashboard should not also
+                // end in an export card.
+                exportSlot={<></>}
+              />
+              <EmotionalIndicators
+                advanced={statistics.advanced}
+                participants={statisticsParticipants}
+              />
+            </div>
+          ) : null}
+
+          {tab === "export" ? (
+            <ExportPanel
+              detail={detail}
+              result={result}
               pseudonyms={pseudonyms}
-              conversationTitle={result.conversation.title}
-              exportSlot={
-                <ExportPanel
-                  detail={detail}
-                  result={result}
-                  pseudonyms={pseudonyms}
-                  nameFor={nameFor}
-                />
-              }
+              nameFor={nameFor}
             />
           ) : null}
 

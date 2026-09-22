@@ -162,20 +162,62 @@ export function ExportPanel({ detail, result, pseudonyms, nameFor }: ExportPanel
 
   const summary = buildShareSummary(statistics.base, result.conversation.title);
 
+  const analysisResult = result.result;
+  const contents = [
+    "Participants, date range and the analysis type",
+    "The overview and the key insights",
+    ...(analysisResult.profiles ? ["Communication profiles"] : []),
+    ...(analysisResult.timeline ? ["What changed over time"] : []),
+    ...(analysisResult.conflicts ? ["Difficult moments"] : []),
+    "Statistics: who talks more, who starts, response times, activity",
+    "Suggestions",
+    "A handful of quoted exchanges as evidence",
+    "The consent record this analysis ran under",
+  ];
+
   return (
-    <Card className="no-print">
-      <CardBody>
-        <SectionTitle>Export &amp; share</SectionTitle>
-        <p className="mb-4 text-sm leading-relaxed text-muted">
-          The PDF contains the statistics, the written analysis and a small number of
-          quoted exchanges — not your conversation. There is no shareable link: nothing
-          about this conversation is published.
+    <div className="mx-auto max-w-2xl space-y-6">
+      <div>
+        <h2 className="text-xl font-semibold tracking-tight">Export this analysis</h2>
+        <p className="mt-2 text-sm leading-relaxed text-muted">
+          A typeset PDF of the report — the statistics, the written sections and a
+          small number of quoted exchanges. Not your conversation, and no internal
+          references.
         </p>
-        <div className="flex flex-wrap items-start gap-3">
-          <PdfExportButton buildPayload={buildPayload} onGenerated={setPdfFile} />
-          <ShareButton summary={summary} file={pdfFile} />
-        </div>
-      </CardBody>
-    </Card>
+      </div>
+
+      <Card>
+        <CardBody className="sm:px-6 sm:py-6">
+          <SectionTitle>What the PDF contains</SectionTitle>
+          <ul className="space-y-2 text-sm leading-relaxed text-ink-soft">
+            {contents.map((entry) => (
+              <li key={entry} className="flex gap-2.5">
+                <span
+                  aria-hidden="true"
+                  className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500"
+                />
+                <span>{entry}</span>
+              </li>
+            ))}
+          </ul>
+
+          <div className="mt-6 flex flex-wrap items-start gap-3">
+            <PdfExportButton buildPayload={buildPayload} onGenerated={setPdfFile} />
+            <ShareButton summary={summary} file={pdfFile} />
+          </div>
+
+          {pdfFile ? (
+            <p className="mt-4 text-sm text-positive" role="status">
+              Saved as {pdfFile.name}.
+            </p>
+          ) : null}
+        </CardBody>
+      </Card>
+
+      <p className="text-xs leading-relaxed text-faint">
+        There is no shareable link: nothing about this conversation is published.
+        Sharing means this file, or a copied text summary.
+      </p>
+    </div>
   );
 }

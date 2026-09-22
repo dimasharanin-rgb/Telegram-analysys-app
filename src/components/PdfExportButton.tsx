@@ -55,7 +55,7 @@ export function PdfExportButton({ buildPayload, onGenerated }: PdfExportButtonPr
   return (
     <div className="no-print">
       <Button onClick={download} disabled={state === "working"}>
-        {state === "working" ? "Preparing PDF…" : "Export PDF"}
+        {state === "working" ? "Preparing PDF…" : "Download PDF"}
       </Button>
 
       {state === "failed" ? (
