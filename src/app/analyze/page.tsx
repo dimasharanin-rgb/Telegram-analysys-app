@@ -12,6 +12,8 @@ import type { ConversationStatistics } from "@/lib/stats";
 import { computeStatistics } from "@/lib/stats";
 import { computeAdvancedStatistics } from "@/lib/stats/advanced";
 import { buildAdvancedDigest, buildAnalysisRequest } from "@/lib/pipeline/payload";
+import { clipToBudget, describeCoverage } from "@/lib/analysis/clipping";
+import { sizeTierFor } from "@/lib/analysis/size-tiers";
 import { api, ApiError } from "@/lib/client/api";
 import { ImportError, importTelegramFile } from "@/lib/client/importer";
 
@@ -20,7 +22,11 @@ import { ConversationPreview } from "@/components/ConversationPreview";
 import { ErrorState } from "@/components/ErrorState";
 import { UploadDropzone } from "@/components/UploadDropzone";
 import { Button } from "@/components/ui/Button";
-import { Card, CardBody } from "@/components/ui/Card";
+import { Card, CardBody, SectionTitle } from "@/components/ui/Card";
+import {
+  initialLanguage,
+  LanguagePicker,
+} from "@/components/v2/LanguagePicker";
 import { PlanPicker } from "@/components/v2/PlanPicker";
 import { SelfPicker } from "@/components/v2/SelfPicker";
 import { SiteHeader } from "@/components/v2/SiteHeader";
@@ -67,6 +73,10 @@ export default function AnalyzePage() {
   const [selfId, setSelfId] = React.useState<string | null>(null);
   const [productId, setProductId] = React.useState("free");
   const [modules, setModules] = React.useState<AnalysisModule[]>(DEFAULT_MODULES);
+  // Resolved when the import finishes rather than at first render: reading
+  // localStorage and navigator during render would differ between the server
+  // pass and the client one, which is a hydration mismatch.
+  const [language, setLanguage] = React.useState("en");
 
   /* --- import ---------------------------------------------------------- */
 
@@ -83,6 +93,9 @@ export default function AnalyzePage() {
           onProgress: (update) => setImportMessage(update.message),
         });
         setImportState({ file, ...outcome });
+        // Picked up here because this is an event, not render: the stored
+        // preference and navigator.language only exist in the browser.
+        setLanguage(initialLanguage());
         // The most active participant is the likeliest "you", but it is a
         // guess and the picker makes that obvious.
         setSelfId(outcome.conversation.participants[0]?.id ?? null);
@@ -136,6 +149,15 @@ export default function AnalyzePage() {
 
     try {
       const { conversation, statistics, segments } = importState;
+
+      // Spend the budget in whole messages before anything is built from
+      // them, so every downstream figure describes the same window.
+      const budget = sizeTierFor(productId).maxCharacters;
+      const clipped = clipToBudget(conversation.messages, budget);
+      const readConversation =
+        clipped.coverage.partial
+          ? { ...conversation, messages: clipped.messages }
+          : conversation;
       const advanced = computeAdvancedStatistics(conversation, segments, {
         conversationGapMinutes: gapMinutes,
         medianResponseSeconds: Object.fromEntries(
@@ -146,7 +168,7 @@ export default function AnalyzePage() {
         ),
       });
 
-      const built = buildAnalysisRequest(conversation, statistics, segments, {
+      const built = buildAnalysisRequest(readConversation, statistics, segments, {
         // Difficult moments are always included, so the module that reads them
         // is not looking at a conversation the shortlist was cut out of.
         maxSegments: 40,
@@ -181,6 +203,8 @@ export default function AnalyzePage() {
           modules,
           contentTypes: ["TEXT"],
           depth: getProduct(productId)?.depth ?? "standard",
+          language,
+          coverage: clipped.coverage,
         },
       });
 
@@ -197,9 +221,20 @@ export default function AnalyzePage() {
       );
       setPhase("configure");
     }
-  }, [importState, selfId, gapMinutes, productId, modules, router]);
+  }, [importState, selfId, gapMinutes, productId, modules, language, router]);
 
   const product = getProduct(productId);
+
+  // What this plan would actually read, computed the same way the run does
+  // so the number on screen is the number that happens.
+  const coverage = React.useMemo(() => {
+    if (!importState) return null;
+    return clipToBudget(
+      importState.conversation.messages,
+      sizeTierFor(productId).maxCharacters,
+    ).coverage;
+  }, [importState, productId]);
+
   const tooLarge =
     product !== null &&
     importState !== null &&
@@ -287,6 +322,46 @@ export default function AnalyzePage() {
                   />
                 </CardBody>
               </Card>
+
+              <Card>
+                <CardBody className="sm:px-6 sm:py-6">
+                  <LanguagePicker value={language} onChange={setLanguage} />
+                </CardBody>
+              </Card>
+
+              {coverage ? (
+                <Card>
+                  <CardBody className="sm:px-6 sm:py-6">
+                    <SectionTitle
+                      hint={coverage.partial ? "Partial" : "Whole conversation"}
+                    >
+                      What will be analysed
+                    </SectionTitle>
+                    <p className="text-sm font-medium text-ink">
+                      {describeCoverage(coverage)}
+                    </p>
+                    {coverage.partial ? (
+                      <>
+                        <p className="mt-2 text-sm leading-relaxed text-muted">
+                          This conversation is larger than{" "}
+                          {product?.name ?? "this option"} covers. The analysis will
+                          read the first{" "}
+                          {coverage.analysedMessages.toLocaleString("en-US")} of{" "}
+                          {coverage.totalMessages.toLocaleString("en-US")} messages,
+                          stopping on a message boundary, and the report will say so.
+                        </p>
+                        <p className="mt-2 text-sm leading-relaxed text-muted">
+                          A larger option reads more of it.
+                        </p>
+                      </>
+                    ) : (
+                      <p className="mt-2 text-sm leading-relaxed text-muted">
+                        Every message fits inside this option&rsquo;s budget.
+                      </p>
+                    )}
+                  </CardBody>
+                </Card>
+              ) : null}
 
               <div className="flex flex-col gap-3 sm:flex-row-reverse">
                 <Button

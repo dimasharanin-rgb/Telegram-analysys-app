@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 
 import { getProduct } from "@/lib/billing/products";
+import { partialDisclaimer } from "@/lib/analysis/clipping";
 import type { JobDetail, JobResult } from "@/lib/client/api";
 import { buildInsightDeck, prioritiseDeck } from "@/lib/client/insights";
 import { cx, formatDate, formatNumber } from "@/lib/client/format";
@@ -110,6 +111,11 @@ export function ResultView({
   );
 
   const product = getProduct(detail.job.productId);
+  // Stated once, at the top, because every section below describes only the
+  // part of the conversation that was read.
+  const partial = result.result.coverage
+    ? partialDisclaimer(result.result.coverage)
+    : null;
   const adviceAvailable =
     product?.allowedModules.includes("RESPONSE_ADVICE") === true ||
     product?.allowedModules.includes("AVOIDANCE_PATTERNS") === true;
@@ -182,6 +188,12 @@ export function ResultView({
       </div>
 
       <main id="main" className="app-container flex-1 py-6 sm:py-8">
+        {partial ? (
+          <p className="mx-auto mb-6 max-w-3xl rounded-xl border border-amber-200 bg-amber-50/70 px-5 py-4 text-sm leading-relaxed text-ink">
+            {partial}
+          </p>
+        ) : null}
+
         <div
           role="tabpanel"
           className={tab === "stats" ? "mx-auto max-w-4xl" : "mx-auto max-w-3xl"}

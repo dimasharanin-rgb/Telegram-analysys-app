@@ -96,11 +96,31 @@ export const advancedDigestSchema = z.object({
 
 export type AdvancedDigest = z.infer<typeof advancedDigestSchema>;
 
+/**
+ * What the analysis actually read.
+ *
+ * Travels with the input so the run, the result and the PDF all know whether
+ * they are describing the whole conversation, without anyone having to
+ * recompute it or take it on trust.
+ */
+export const coverageSchema = z.object({
+  totalMessages: z.number().int().nonnegative(),
+  analysedMessages: z.number().int().nonnegative(),
+  totalCharacters: z.number().int().nonnegative(),
+  analysedCharacters: z.number().int().nonnegative(),
+  partial: z.boolean(),
+  budgetCharacters: z.number().int().positive().nullable(),
+  analysedThrough: z.string().max(32).nullable(),
+});
+
 export const analysisJobInputSchema = analysisRequestSchema.extend({
   advanced: advancedDigestSchema,
   modules: z.array(z.enum(ANALYSIS_MODULES)).max(ANALYSIS_MODULES.length),
   contentTypes: z.array(z.enum(CONTENT_TYPES)).max(CONTENT_TYPES.length),
   depth: z.enum(ANALYSIS_DEPTHS),
+  /** BCP-47 code the written report must come back in. */
+  language: z.string().max(12).optional(),
+  coverage: coverageSchema.optional(),
 });
 
 export type AnalysisJobInput = z.infer<typeof analysisJobInputSchema>;

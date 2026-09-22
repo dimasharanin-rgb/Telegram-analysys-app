@@ -486,6 +486,18 @@ function drawCover(doc: PDFKit.PDFDocument, fonts: Fonts, payload: PdfReportPayl
       { width: CONTENT_WIDTH },
     );
 
+  // A partial analysis says so on the cover, not in a footnote: everything
+  // after this page describes only the part that was read.
+  if (payload.coverageNote) {
+    doc
+      .font(fonts.regular)
+      .fontSize(8.5)
+      .fillColor("#FDE68A")
+      .text(payload.coverageNote, MARGIN, 140, { width: CONTENT_WIDTH });
+    doc.y = 205;
+    return;
+  }
+
   doc.y = 190;
 }
 

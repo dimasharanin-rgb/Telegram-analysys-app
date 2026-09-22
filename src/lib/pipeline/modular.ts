@@ -23,6 +23,7 @@ import {
   type Confidence,
 } from "@/lib/ai/schema";
 import type { AnalysisJobInput } from "@/lib/ai/modules/input";
+import type { Coverage } from "@/lib/analysis/clipping";
 import {
   CONFLICT_TASK,
   EMOTIONAL_TASK,
@@ -66,6 +67,11 @@ export interface AnalysisResultV2 {
   modules: AnalysisModule[];
   strategy: string;
   confidence: Confidence;
+  /**
+   * What the analysis actually read. Carried on the result so the page and
+   * the PDF disclose the same thing without recomputing it.
+   */
+  coverage: Coverage | null;
   /** Everything the MVP produced, unchanged in shape. */
   base: Analysis;
   interaction: InteractionFindings | null;
@@ -153,6 +159,9 @@ export async function runModularAnalysis(
     statistics: input.statistics,
     advanced: input.advanced,
     excerpts: input.excerpts,
+    // One job has one language, so this stays identical across its modules
+    // and the shared prefix is still cached.
+    ...(input.language ? { language: input.language } : {}),
   };
   const systemContext = sharedContextBlock(context);
 
@@ -290,6 +299,7 @@ export async function runModularAnalysis(
       modules: selected,
       strategy: base.strategy,
       confidence: base.analysis.overview.confidence,
+      coverage: input.coverage ?? null,
       base: cleanedBase,
       interaction: deduped.interaction,
       emotional: deduped.emotional,

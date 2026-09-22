@@ -6,6 +6,7 @@ import { CONSENT_STATUS_LABELS } from "@/lib/consent/state";
 import { CONSENT_DOCUMENT_VERSION } from "@/lib/consent/document";
 import { MODULE_DEFINITIONS } from "@/lib/analysis/modules";
 import { getProduct } from "@/lib/billing/products";
+import { partialDisclaimer } from "@/lib/analysis/clipping";
 import type { JobDetail, JobResult } from "@/lib/client/api";
 import { buildPdfPayload } from "@/lib/client/pdf-payload";
 import { humanise, type PseudonymMap } from "@/lib/pipeline/payload";
@@ -41,6 +42,9 @@ export function ExportPanel({ detail, result, pseudonyms, nameFor }: ExportPanel
     (value: string) => humanise(value, pseudonyms.toDisplayName),
     [pseudonyms],
   );
+
+  // The same disclosure the page makes, from the same figures.
+  const coverageNote = analysis.coverage ? partialDisclaimer(analysis.coverage) : null;
 
   const buildPayload = (): PdfReportPayload => {
     const base = buildPdfPayload({
@@ -81,6 +85,7 @@ export function ExportPanel({ detail, result, pseudonyms, nameFor }: ExportPanel
       ...base,
       appVersion: APP_VERSION,
       analysisType: getProduct(detail.job.productId)?.name ?? detail.job.productId,
+      ...(coverageNote ? { coverageNote } : {}),
       methodology: [
         ...base.methodology,
         `Modules run: ${detail.job.modules

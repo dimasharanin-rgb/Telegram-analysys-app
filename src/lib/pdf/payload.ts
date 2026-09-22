@@ -63,6 +63,11 @@ export const pdfReportSchema = z.object({
 
   /** Application version, printed on the cover. */
   appVersion: z.string().max(20).optional(),
+  /**
+   * Stated on the cover when the analysis read only part of the
+   * conversation. The report outlives the screen that explained the choice.
+   */
+  coverageNote: z.string().max(400).optional(),
   analysisType: z.string().max(40).optional(),
 
   keyInsights: z
