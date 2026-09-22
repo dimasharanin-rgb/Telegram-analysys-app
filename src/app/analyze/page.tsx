@@ -12,7 +12,7 @@ import type { ConversationStatistics } from "@/lib/stats";
 import { computeStatistics } from "@/lib/stats";
 import { computeAdvancedStatistics } from "@/lib/stats/advanced";
 import { buildAdvancedDigest, buildAnalysisRequest } from "@/lib/pipeline/payload";
-import { clipToBudget, describeCoverage } from "@/lib/analysis/clipping";
+import { coverageFromExcerpts, describeCoverage } from "@/lib/analysis/clipping";
 import { sizeTierFor } from "@/lib/analysis/size-tiers";
 import { api, ApiError } from "@/lib/client/api";
 import { ImportError, importTelegramFile } from "@/lib/client/importer";
@@ -150,14 +150,10 @@ export default function AnalyzePage() {
     try {
       const { conversation, statistics, segments } = importState;
 
-      // Spend the budget in whole messages before anything is built from
-      // them, so every downstream figure describes the same window.
+      // The budget applies to what the model reads, not to what is counted.
+      // Statistics are exact arithmetic over the whole export, computed here
+      // and costing nothing, so there is no reason to narrow them.
       const budget = sizeTierFor(productId).maxCharacters;
-      const clipped = clipToBudget(conversation.messages, budget);
-      const readConversation =
-        clipped.coverage.partial
-          ? { ...conversation, messages: clipped.messages }
-          : conversation;
       const advanced = computeAdvancedStatistics(conversation, segments, {
         conversationGapMinutes: gapMinutes,
         medianResponseSeconds: Object.fromEntries(
@@ -168,11 +164,17 @@ export default function AnalyzePage() {
         ),
       });
 
-      const built = buildAnalysisRequest(readConversation, statistics, segments, {
+      const built = buildAnalysisRequest(conversation, statistics, segments, {
         // Difficult moments are always included, so the module that reads them
         // is not looking at a conversation the shortlist was cut out of.
         maxSegments: 40,
+        ...(budget === null ? {} : { charBudget: budget }),
       });
+      const coverage = coverageFromExcerpts(
+        conversation.messages,
+        built.request.excerpts,
+        budget,
+      );
       const digest = buildAdvancedDigest(advanced, built.pseudonyms.toPseudonym);
 
       const created = await api.createConversation({
@@ -204,7 +206,7 @@ export default function AnalyzePage() {
           contentTypes: ["TEXT"],
           depth: getProduct(productId)?.depth ?? "standard",
           language,
-          coverage: clipped.coverage,
+          coverage,
         },
       });
 
@@ -225,14 +227,23 @@ export default function AnalyzePage() {
 
   const product = getProduct(productId);
 
-  // What this plan would actually read, computed the same way the run does
-  // so the number on screen is the number that happens.
+  // What this plan would actually read, built the same way the run builds it
+  // so the figure on screen is the figure that happens. Pure and cheap: it
+  // is excerpt selection over already-parsed messages.
   const coverage = React.useMemo(() => {
     if (!importState) return null;
-    return clipToBudget(
+    const budget = sizeTierFor(productId).maxCharacters;
+    const preview = buildAnalysisRequest(
+      importState.conversation,
+      importState.statistics,
+      importState.segments,
+      { maxSegments: 40, ...(budget === null ? {} : { charBudget: budget }) },
+    );
+    return coverageFromExcerpts(
       importState.conversation.messages,
-      sizeTierFor(productId).maxCharacters,
-    ).coverage;
+      preview.request.excerpts,
+      budget,
+    );
   }, [importState, productId]);
 
   const tooLarge =
@@ -344,19 +355,23 @@ export default function AnalyzePage() {
                       <>
                         <p className="mt-2 text-sm leading-relaxed text-muted">
                           This conversation is larger than{" "}
-                          {product?.name ?? "this option"} covers. The analysis will
-                          read the first{" "}
+                          {product?.name ?? "this option"} reads. The written analysis
+                          will be based on{" "}
                           {coverage.analysedMessages.toLocaleString("en-US")} of{" "}
-                          {coverage.totalMessages.toLocaleString("en-US")} messages,
-                          stopping on a message boundary, and the report will say so.
+                          {coverage.totalMessages.toLocaleString("en-US")} messages —
+                          whole exchanges spread across the conversation, never a
+                          message cut in half — and the report will say so.
                         </p>
                         <p className="mt-2 text-sm leading-relaxed text-muted">
-                          A larger option reads more of it.
+                          Every statistic still covers all{" "}
+                          {coverage.totalMessages.toLocaleString("en-US")} messages:
+                          those are computed here and cost nothing. A larger option
+                          reads more of the conversation itself.
                         </p>
                       </>
                     ) : (
                       <p className="mt-2 text-sm leading-relaxed text-muted">
-                        Every message fits inside this option&rsquo;s budget.
+                        Every message fits inside this option&rsquo;s reading budget.
                       </p>
                     )}
                   </CardBody>

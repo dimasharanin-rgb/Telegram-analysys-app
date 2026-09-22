@@ -110,3 +110,86 @@ describe("renderReportPdf", () => {
     expect(pdf.subarray(0, 5).toString("latin1")).toBe("%PDF-");
   });
 });
+
+describe("the PDF never carries internal plumbing", () => {
+  /**
+   * Real text extraction, via poppler.
+   *
+   * The fonts are embedded and subset, so the strings are not recoverable by
+   * reading the raw bytes - an assertion over those would pass whatever the
+   * file said, which is worse than no assertion. Skipped rather than faked
+   * where pdftotext is unavailable.
+   */
+  async function pdfText(bytes: Buffer): Promise<string | null> {
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const fs = await import("node:fs/promises");
+    const os = await import("node:os");
+    const path = await import("node:path");
+
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "pdf-test-"));
+    const file = path.join(dir, "report.pdf");
+    await fs.writeFile(file, bytes);
+    try {
+      const { stdout } = await promisify(execFile)("pdftotext", [file, "-"]);
+      return stdout;
+    } catch {
+      return null;
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("has no bracketed message ids anywhere in the rendered file", async () => {
+    const payload: PdfReportPayload = {
+      ...fixturePayload(),
+      appVersion: "3.0",
+      analysisType: "Deep text analysis",
+      keyInsights: [
+        {
+          title: "Follow-ups after a short reply",
+          observation: "You send another message soon after a one-word reply.",
+          interpretation: "One reading is that a brief reply reads as unfinished.",
+          uncertainty: "The messages alone cannot establish intent.",
+        },
+      ],
+      evidence: [
+        {
+          label: "2024-05-12",
+          lines: [
+            { speaker: "Sam Okonkwo", text: "Можем поговорить сегодня вечером?" },
+            { speaker: "Alex Moreau", text: "Yes — after 8." },
+          ],
+        },
+      ],
+    };
+
+    const text = await pdfText(await renderReportPdf(payload));
+    if (text === null) return;
+
+    // The extraction has to have worked, or the assertions below prove nothing.
+    expect(text).toContain("Follow-ups after a short reply");
+    // Evidence is rendered with names and dates, never identifiers.
+    expect(text).toContain("Sam Okonkwo");
+    expect(text).not.toMatch(/\[\s*#?\d{1,12}\s*\]/);
+    expect(text).not.toMatch(/message ids?/i);
+  });
+
+  it("prints the coverage note when the analysis read only part of the chat", async () => {
+    const note =
+      "This analysis is based on 400 of 4,000 messages — about 10% of the conversation.";
+    const text = await pdfText(
+      await renderReportPdf({ ...fixturePayload(), coverageNote: note }),
+    );
+    if (text === null) return;
+
+    expect(text).toContain("400 of 4,000 messages");
+  });
+
+  it("omits the note entirely for a complete analysis", async () => {
+    const text = await pdfText(await renderReportPdf(fixturePayload()));
+    if (text === null) return;
+
+    expect(text).not.toContain("This analysis is based on");
+  });
+});

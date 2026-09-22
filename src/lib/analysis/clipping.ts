@@ -138,12 +138,53 @@ export function partialDisclaimer(coverage: Coverage): string | null {
   const share = Math.round(
     (coverage.analysedCharacters / Math.max(1, coverage.totalCharacters)) * 100,
   );
-  const through = coverage.analysedThrough
-    ? ` It covers the conversation up to ${coverage.analysedThrough.slice(0, 10)}.`
-    : "";
   return (
-    `This analysis is based on ${NUMBER.format(coverage.analysedMessages)} of ` +
+    `This written analysis is based on ${NUMBER.format(coverage.analysedMessages)} of ` +
     `${NUMBER.format(coverage.totalMessages)} messages — about ${share}% of the ` +
-    `conversation.${through} Anything after that was not read.`
+    `conversation, selected as whole exchanges spread across the whole period. ` +
+    `The statistics cover every message.`
   );
+}
+
+/* -------------------------------------------------------------------------
+ * Coverage of what was actually sent
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Coverage measured from the excerpts the analysis will read.
+ *
+ * The statistics are exact arithmetic over the whole export and stay that
+ * way - they are computed on the device and cost nothing, so there is no
+ * reason to limit them. It is the *reading* that is budgeted, and that is
+ * what this describes: how much of the conversation the written analysis
+ * actually saw.
+ */
+export function coverageFromExcerpts(
+  allMessages: readonly NormalizedMessage[],
+  excerpts: readonly { messages: readonly { id: string; t: string }[] }[],
+  budgetCharacters: number | null,
+): Coverage {
+  const sentIds = new Set<string>();
+  let analysedCharacters = 0;
+
+  for (const excerpt of excerpts) {
+    for (const message of excerpt.messages) {
+      if (sentIds.has(message.id)) continue;
+      sentIds.add(message.id);
+      analysedCharacters += message.t.length + PER_MESSAGE_OVERHEAD;
+    }
+  }
+
+  const partial = sentIds.size < allMessages.length;
+  const lastSent = [...allMessages].reverse().find((m) => sentIds.has(m.id));
+
+  return {
+    totalMessages: allMessages.length,
+    analysedMessages: sentIds.size,
+    totalCharacters: totalCost(allMessages),
+    analysedCharacters,
+    partial,
+    budgetCharacters,
+    analysedThrough: partial ? (lastSent?.localIso ?? null) : null,
+  };
 }

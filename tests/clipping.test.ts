@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   clipToBudget,
+  coverageFromExcerpts,
   describeCoverage,
   messageCost,
   partialDisclaimer,
@@ -182,8 +183,52 @@ describe("saying what was actually read", () => {
 
     expect(disclaimer).toContain("10 of 100 messages");
     expect(disclaimer).toContain("%");
-    expect(disclaimer).toContain("not read");
-    // No internal identifiers, and a date the reader can locate.
-    expect(disclaimer).toMatch(/\d{4}-\d{2}-\d{2}/);
+    // It distinguishes the two things that are true at once: the written
+    // analysis read part of the conversation, the statistics cover all of it.
+    expect(disclaimer).toContain("written analysis");
+    expect(disclaimer).toContain("statistics cover every message");
+    // Nothing internal leaks into a sentence a reader sees.
+    expect(disclaimer).not.toMatch(/\[\s*\d+\s*\]/);
+  });
+});
+
+describe("coverage of what was actually sent", () => {
+  it("reports full coverage when every message is in an excerpt", () => {
+    const messages = uniform(4, 50);
+    const excerpts = [
+      { messages: messages.map((m) => ({ id: m.id, t: m.text })) },
+    ];
+
+    const coverage = coverageFromExcerpts(messages, excerpts, 30_000);
+    expect(coverage.partial).toBe(false);
+    expect(coverage.analysedMessages).toBe(4);
+  });
+
+  it("reports partial coverage when the excerpts are a selection", () => {
+    const messages = uniform(100, 50);
+    // Whole exchanges from across the conversation, not a prefix.
+    const excerpts = [
+      { messages: messages.slice(0, 3).map((m) => ({ id: m.id, t: m.text })) },
+      { messages: messages.slice(60, 64).map((m) => ({ id: m.id, t: m.text })) },
+    ];
+
+    const coverage = coverageFromExcerpts(messages, excerpts, 1_000);
+    expect(coverage.partial).toBe(true);
+    expect(coverage.analysedMessages).toBe(7);
+    expect(coverage.totalMessages).toBe(100);
+    // The last message actually sent, not the last in the conversation.
+    expect(coverage.analysedThrough).toBe(messages[63]!.localIso);
+  });
+
+  it("counts a message once even if two excerpts overlap", () => {
+    const messages = uniform(5, 50);
+    const shared = messages.slice(1, 3).map((m) => ({ id: m.id, t: m.text }));
+    const coverage = coverageFromExcerpts(
+      messages,
+      [{ messages: shared }, { messages: shared }],
+      1_000,
+    );
+
+    expect(coverage.analysedMessages).toBe(2);
   });
 });
