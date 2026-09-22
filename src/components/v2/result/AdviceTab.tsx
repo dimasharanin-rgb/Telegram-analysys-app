@@ -4,7 +4,11 @@ import * as React from "react";
 
 import type { AvoidanceFindings, ResponseAdvice } from "@/lib/ai/modules/schemas";
 import { api, ApiError, type EvidenceMessage } from "@/lib/client/api";
+import type { AdviceAllowance } from "@/lib/advice/limits";
+import { AdviceLibrary } from "./AdviceLibrary";
 import type { UserFacingError } from "@/lib/errors";
+import Link from "next/link";
+
 import { cx, formatDateTime } from "@/lib/client/format";
 import { seriesColor } from "@/lib/palette";
 import { Button } from "@/components/ui/Button";
@@ -17,6 +21,8 @@ export interface AdviceTabProps {
   evidence: EvidenceMessage[];
   participants: { pseudonym: string; displayName: string; isSelf: boolean }[];
   available: boolean;
+  /** What this analysis includes, and what is left of it. */
+  allowance: AdviceAllowance;
 }
 
 const STYLE_LABELS: Record<string, string> = {
@@ -70,7 +76,13 @@ function groupIntoExchanges(evidence: EvidenceMessage[]): Exchange[] {
  * text they use is what the server still holds - the exchanges the analysis
  * quoted - so nothing extra is stored to make this work.
  */
-export function AdviceTab({ jobId, evidence, participants, available }: AdviceTabProps) {
+export function AdviceTab({
+  jobId,
+  evidence,
+  participants,
+  available,
+  allowance,
+}: AdviceTabProps) {
   const exchanges = React.useMemo(() => groupIntoExchanges(evidence), [evidence]);
   const self = participants.find((participant) => participant.isSelf);
 
@@ -83,6 +95,9 @@ export function AdviceTab({ jobId, evidence, participants, available }: AdviceTa
   const [advice, setAdvice] = React.useState<ResponseAdvice | null>(null);
   const [avoidance, setAvoidance] = React.useState<AvoidanceFindings | null>(null);
   const [copied, setCopied] = React.useState<number | null>(null);
+  // The server is authoritative; this mirrors it so the count moves as soon
+  // as a request is spent, and is corrected by whatever the server returns.
+  const [spent, setSpent] = React.useState<AdviceAllowance>(allowance);
 
   if (!available) {
     return (
@@ -118,19 +133,22 @@ export function AdviceTab({ jobId, evidence, participants, available }: AdviceTa
     })),
   });
 
-  const ask = async (kind: "respond" | "avoid") => {
+  const ask = async (kind: "respond" | "avoid", extra?: string) => {
     setBusy(kind);
     setError(null);
     try {
       if (kind === "respond") {
+        const wanted = [extra, intent.trim()].filter(Boolean).join(" ");
         const response = await api.responseAdvice({
           ...payload(),
-          ...(intent.trim() ? { intent: intent.trim() } : {}),
+          ...(wanted ? { intent: wanted } : {}),
         });
         setAdvice(response.advice);
+        setSpent(response.allowance);
       } else {
         const response = await api.avoidanceAdvice(payload());
         setAvoidance(response.findings);
+        setSpent(response.allowance);
       }
     } catch (thrown) {
       setError(
@@ -156,8 +174,42 @@ export function AdviceTab({ jobId, evidence, participants, available }: AdviceTa
   const colorIndex = (pseudonym: string) =>
     Math.max(0, participants.findIndex((p) => p.pseudonym === pseudonym));
 
+  const exhausted = spent.remaining <= 0;
+
   return (
     <div className="space-y-8">
+      {/* What this costs, stated before anything is clicked. */}
+      <div
+        className={cx(
+          "flex flex-wrap items-center justify-between gap-3 rounded-xl border px-5 py-4",
+          exhausted
+            ? "border-amber-200 bg-amber-50/70"
+            : "border-line bg-canvas-soft",
+        )}
+      >
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-ink">
+            {exhausted
+              ? "You've used all the advice requests included with this analysis."
+              : `${spent.remaining} of ${spent.total} advice ${
+                  spent.total === 1 ? "request" : "requests"
+                } remaining`}
+          </p>
+          <p className="mt-0.5 text-xs leading-relaxed text-muted">
+            {exhausted
+              ? "The written guidance below is still available and costs nothing."
+              : "Each suggestion below uses one. The written guidance is free."}
+          </p>
+        </div>
+        {exhausted ? (
+          <Link href="/pricing" className="shrink-0">
+            <Button size="sm" variant="secondary">
+              See options
+            </Button>
+          </Link>
+        ) : null}
+      </div>
+
       <section>
         <SectionTitle hint="From the exchanges this analysis quoted">
           Pick a moment
@@ -227,7 +279,7 @@ export function AdviceTab({ jobId, evidence, participants, available }: AdviceTa
         <Button
           className="mt-3"
           onClick={() => void ask("respond")}
-          disabled={busy !== null}
+          disabled={busy !== null || exhausted}
         >
           {busy === "respond" ? "Thinking…" : "Suggest replies"}
         </Button>
@@ -284,7 +336,7 @@ export function AdviceTab({ jobId, evidence, participants, available }: AdviceTa
           className="mt-3"
           variant="secondary"
           onClick={() => void ask("avoid")}
-          disabled={busy !== null}
+          disabled={busy !== null || exhausted}
         >
           {busy === "avoid" ? "Reading…" : "Check this exchange"}
         </Button>
@@ -326,6 +378,14 @@ export function AdviceTab({ jobId, evidence, participants, available }: AdviceTa
           </div>
         ) : null}
       </section>
+
+      <AdviceLibrary
+        canPersonalise={!exhausted}
+        busy={busy !== null}
+        onPersonalise={(topic) =>
+          void ask("respond", `Apply this guidance to the exchange: ${topic.title}.`)
+        }
+      />
     </div>
   );
 }

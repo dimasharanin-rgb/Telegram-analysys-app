@@ -15,6 +15,10 @@ import { serverConfig } from "@/lib/config";
 import { AppError } from "@/lib/errors";
 import { costMicros } from "@/lib/pipeline/modular";
 import { evaluateConsentGate } from "@/server/consent/gate";
+import {
+  releaseAdviceRequest,
+  reserveAdviceRequest,
+} from "@/server/advice/allowance";
 import { json, readJson, withOwner } from "@/server/http";
 import { getJob, recordUsage } from "@/server/repositories/jobs";
 
@@ -56,6 +60,10 @@ export const POST = withOwner(
       })
       .join("\n");
 
+    // Reserved before the call and released if it produces nothing, so a
+    // provider failure never costs someone a request.
+    const reservation = reserveAdviceRequest(job.id, ownerId, job.productId, "avoid");
+
     const service = new ClaudeAnalysisService();
     service.onUsage((event) => {
       recordUsage({
@@ -69,21 +77,27 @@ export const POST = withOwner(
       });
     });
 
-    const findings = await service.runModule({
-      moduleId: "AVOIDANCE_PATTERNS",
-      systemContext: avoidanceSystemPrompt(),
-      task: [
-        `Look at the messages sent by ${speaker}. Cite message ids from the excerpt as evidence.`,
-        "",
-        "THE EXCHANGE",
-        fenceContent(transcript),
-      ].join("\n"),
-      schema: avoidanceFindingsSchema,
-      effort: serverConfig().anthropic.effort,
-      maxOutputTokens: 3_000,
-    });
+    let findings;
+    try {
+      findings = await service.runModule({
+        moduleId: "AVOIDANCE_PATTERNS",
+        systemContext: avoidanceSystemPrompt(),
+        task: [
+          `Look at the messages sent by ${speaker}. Cite message ids from the excerpt as evidence.`,
+          "",
+          "THE EXCHANGE",
+          fenceContent(transcript),
+        ].join("\n"),
+        schema: avoidanceFindingsSchema,
+        effort: serverConfig().anthropic.effort,
+        maxOutputTokens: 3_000,
+      });
+    } catch (error) {
+      releaseAdviceRequest(reservation.id);
+      throw error;
+    }
 
-    return json({ findings });
+    return json({ findings, allowance: reservation.allowance });
   },
   { create: false, rateLimit: true },
 );

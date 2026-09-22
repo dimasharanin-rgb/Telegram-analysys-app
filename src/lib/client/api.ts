@@ -13,6 +13,7 @@ import type { AnalysisResultV2 } from "@/lib/pipeline/modular";
 import type { ConversationStatistics } from "@/lib/stats";
 import type { AdvancedStatistics } from "@/lib/stats/advanced";
 import type { ResponseAdvice, AvoidanceFindings } from "@/lib/ai/modules/schemas";
+import type { AdviceAllowance } from "@/lib/advice/limits";
 
 export class ApiError extends Error {
   readonly userFacing: UserFacingError;
@@ -153,6 +154,7 @@ export interface JobDetail {
   };
   participants: { pseudonym: string; displayName: string; isSelf: boolean }[];
   usage: { module: string; inputTokens: number; outputTokens: number; costMicros: number }[];
+  advice: AdviceAllowance;
 }
 
 export interface StoredStatistics {
@@ -264,13 +266,13 @@ export const api = {
     }>("/api/account"),
 
   responseAdvice: (body: unknown) =>
-    request<{ advice: ResponseAdvice }>("/api/advice/respond", {
+    request<{ advice: ResponseAdvice; allowance: AdviceAllowance }>("/api/advice/respond", {
       method: "POST",
       body: JSON.stringify(body),
     }),
 
   avoidanceAdvice: (body: unknown) =>
-    request<{ findings: AvoidanceFindings }>("/api/advice/avoid", {
+    request<{ findings: AvoidanceFindings; allowance: AdviceAllowance }>("/api/advice/avoid", {
       method: "POST",
       body: JSON.stringify(body),
     }),

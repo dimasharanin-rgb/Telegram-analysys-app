@@ -195,4 +195,17 @@ CREATE TABLE usage_records (
 CREATE INDEX idx_usage_job ON usage_records(job_id);
 `,
   },
+  {
+    id: "0002_advice_requests",
+    sql: `
+CREATE TABLE advice_requests (
+  id         TEXT PRIMARY KEY,
+  job_id     TEXT NOT NULL REFERENCES analysis_jobs(id) ON DELETE CASCADE,
+  owner_id   TEXT NOT NULL,
+  kind       TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_advice_job_owner ON advice_requests(job_id, owner_id);
+`,
+  },
 ];

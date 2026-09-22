@@ -265,6 +265,7 @@ export function ResultView({
                 isSelf: p.isSelf,
               }))}
               available={adviceAvailable}
+              allowance={detail.advice}
             />
           ) : null}
         </div>
