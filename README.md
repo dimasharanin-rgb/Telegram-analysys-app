@@ -10,7 +10,11 @@ and is never allowed to assess the people in it. Before any of it runs, every
 other participant is asked, with a link of their own that they can also use to
 withdraw.
 
-Text-only. Media is recognised, counted and left unanalysed.
+A finished analysis reads in this order: **Insights · Timeline · Difficult
+moments · Profile · Stats · Suggestions · Export.**
+
+Text-only. Media is recognised, counted, and covered by a policy layer that
+decides what would be worth processing — but nothing is processed yet.
 
 ---
 
@@ -197,6 +201,73 @@ produces the placeholder shown in the UI.
 
 ---
 
+## What costs money, and what doesn't
+
+Three things cost a model call: the analysis itself, the two advice tools,
+and (when it ships) media processing. Everything else — every statistic, the
+whole written-guidance library, the PDF — is computed locally or written in
+advance, and the product is built so that the expensive things are the ones
+you choose rather than the ones that happen.
+
+**The analysis** reads a budget of conversation, by tier: Standard 30k
+characters, Extended 60k, Large 120k, Full unlimited (`size-tiers.ts`). A
+conversation past the budget is not refused — excerpt selection takes whole
+exchanges from across the whole period until the budget is spent, and the
+report says what it was based on, on screen and on the PDF cover. Statistics
+always cover every message: they are exact arithmetic computed on the device
+and cost nothing, so there is no reason to narrow them.
+
+**Advice** is metered per analysis — 3 requests on free, 10 on deep text, 50
+on credits (`advice/limits.ts`). The check and the spend are one guarded
+INSERT, so two clicks arriving together cannot both take the last request,
+and a request is released if the model returns nothing. Most of the page
+does not need a model at all: eight topics are written in advance and free
+to read, and the metered request is kept for applying them to a specific
+exchange.
+
+**Media** is never processed because it exists. `media/policy.ts` validates
+a file (type against an allow-list, size, duration, and that the declared
+mime type agrees with the kind), then selects what is worth reading by
+conversational signal — a captioned photo someone replied to, not one sent
+into silence — then estimates the cost before anything runs. The text
+products include no media allowance at all.
+
+---
+
+## Repetition, and why the report used to have one idea
+
+Every module reads the same conversation against the same statistics, so
+left alone they converge: "longer messages during conflict" arrives as an
+interaction pattern, an emotional observation and a timeline change.
+
+`ai/prose.ts` compares findings on their content words, collapses
+near-identical ones inside a section, and `modules/sanitise.ts` makes later
+sections yield to what the reader has already met. Conflicts and profiles
+are exempt — overlap with a general pattern is the point there. The prompts
+ask for the same thing (`ai/output-rules.ts`: no filler openers, no summary
+after every section, fewer and stronger findings), because post-processing
+can delete a bad sentence but cannot write a good one.
+
+The same module strips internal message ids out of prose. The excerpts are
+labelled `[461273]` so the model can cite them in the structured evidence
+field, and a model shown a citation format will also paste it into a
+sentence. The ids stay in the evidence mapping — the drawer still resolves
+them to real messages — and come out of anything a reader sees, including
+the PDF, which a test asserts by extracting the rendered text.
+
+---
+
+## Language
+
+The report is written in a language you choose; the conversation is analysed
+in whatever language it was written in. Nothing is pre-translated, because
+that would put a second model's reading of the messages between the analysis
+and the evidence you can check. The directive lives in the cacheable prefix,
+so a multi-module job still pays for the conversation once. The preference is
+remembered, and the catalogue is configurable.
+
+---
+
 ## How the statistics are defined
 
 Where a statistic depends on a judgement call, the rule is stated next to the
@@ -343,6 +414,12 @@ All of it is documented in `.env.example` and read once in
 | `NEXT_PUBLIC_MAX_UPLOAD_MB` | `100` | Largest accepted export. |
 | `MAX_ANALYZE_REQUEST_MB` | `8` | Largest accepted request body. |
 | `RATE_LIMIT_MAX_REQUESTS` / `RATE_LIMIT_WINDOW_MINUTES` | `10` / `10` | Per-caller limit on the routes that cost something. |
+| `ADVICE_REQUESTS_FREE` / `_BASIC` / `_PREMIUM` | `3` / `10` / `50` | AI advice requests included per analysis. |
+| `NEXT_PUBLIC_ANALYSIS_LANGUAGES` | all | Languages offered for the report. |
+| `NEXT_PUBLIC_SIZE_STANDARD_CHARS` / `_EXTENDED_` / `_LARGE_` | `30000` / `60000` / `120000` | How much conversation each tier reads. |
+| `MEDIA_MAX_IMAGES` / `_VIDEOS` / `_AUDIO_SECONDS` / `_VIDEO_SECONDS` | `40` / `5` / `1800` / `600` | Media processing ceilings. |
+| `MEDIA_MAX_FILE_MB` / `MEDIA_MAX_VIDEO_DURATION_SECONDS` | `25` / `300` | Refused outright above these. |
+| `MEDIA_PRICE_*_MICROS` | `4000` / `6000` / `50000` | Micro-dollars, for estimating media cost before it runs. |
 | `ANALYZER_DEBUG` | `0` | Extra (content-free) pipeline logging. |
 
 ---
@@ -386,7 +463,7 @@ readable the instant it appears.
 
 ## Tests
 
-`npm run test` — 197 unit tests over the parser (text entity flattening,
+`npm run test` — 292 unit tests over the parser (text entity flattening,
 timezone derivation, media classification, malformed and unsupported exports,
 full-account exports), the statistics engine (hand-checkable numbers for
 initiation, response times, characteristics, time bins and words) and the
@@ -403,7 +480,7 @@ series), errors and the redacting logger.
 against a real production build and a real SQLite database: landing → upload →
 parse → gap adjustment → who-are-you → plan → prepare → consent request →
 **the other participant deciding in a separate browser context** → run →
-report → evidence drawer → stats → **a real server-rendered PDF download** →
+report → evidence drawer → stats → the Export tab → **a real server-rendered PDF download** →
 history → reopening a finished report. A separate scenario declines instead,
 and asserts nothing was sent for analysis; another buys through the simulated
 checkout and checks the paid modules appear. The suite also reads back
