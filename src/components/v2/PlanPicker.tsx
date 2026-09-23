@@ -13,6 +13,7 @@ import {
   type AnalysisProduct,
 } from "@/lib/billing/products";
 import { cx, formatNumber } from "@/lib/client/format";
+import { sizeTierFor } from "@/lib/analysis/size-tiers";
 import { Badge } from "@/components/ui/Badge";
 import { SectionTitle } from "@/components/ui/Card";
 
@@ -60,7 +61,6 @@ export function PlanPicker({
               key={entry.id}
               product={entry}
               selected={entry.id === productId}
-              tooLarge={messageCount > entry.maxMessages}
               onSelect={() => onProductChange(entry.id)}
             />
           ))}
@@ -132,15 +132,16 @@ export function PlanPicker({
 function ProductCard({
   product,
   selected,
-  tooLarge,
   onSelect,
 }: {
   product: AnalysisProduct;
   selected: boolean;
-  tooLarge: boolean;
   onSelect: () => void;
 }) {
-  const disabled = !product.available || tooLarge;
+  // Only an option this build cannot deliver is unselectable. Size is handled
+  // by reading less of the conversation, not by refusing it.
+  const disabled = !product.available;
+  const tier = sizeTierFor(product.id);
 
   return (
     <button
@@ -173,7 +174,9 @@ function ProductCard({
       </span>
 
       <span className="mt-3 block text-xs text-faint">
-        Up to {formatNumber(product.maxMessages)} messages
+        {tier.maxCharacters === null
+          ? "Reads the whole conversation"
+          : `Reads up to ${formatNumber(tier.maxCharacters)} characters`}
         {product.credits > 1 ? ` · ${product.credits} analyses` : ""}
       </span>
 
@@ -183,11 +186,6 @@ function ProductCard({
         </span>
       ) : null}
 
-      {product.available && tooLarge ? (
-        <span className="mt-2 block text-xs leading-relaxed text-caution">
-          This conversation is larger than this option covers.
-        </span>
-      ) : null}
     </button>
   );
 }

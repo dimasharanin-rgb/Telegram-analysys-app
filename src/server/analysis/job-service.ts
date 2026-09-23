@@ -74,11 +74,10 @@ export function createAnalysisJob(request: CreateJobRequest): CreatedJob {
     });
   }
 
-  if (conversation.messageCount > product.maxMessages) {
-    throw new AppError("CONVERSATION_TOO_LARGE", {
-      message: `${product.name} covers up to ${product.maxMessages.toLocaleString("en-US")} messages; this conversation has ${conversation.messageCount.toLocaleString("en-US")}.`,
-    });
-  }
+  // Deliberately no size rejection. What a product buys is how much of the
+  // conversation gets read, and the excerpts were already budgeted to that
+  // before they were sent - so a large conversation produces a partial
+  // analysis that says it is partial, rather than an error.
 
   const parsed = analysisJobInputSchema.safeParse(request.input);
   if (!parsed.success) {

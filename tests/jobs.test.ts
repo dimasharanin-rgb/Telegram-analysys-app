@@ -186,11 +186,9 @@ describe("creating a job", () => {
     expect((stored?.payload as AnalysisJobInput).excerpts.length).toBeGreaterThan(0);
   });
 
-  it("refuses a conversation larger than the product covers", () => {
+  it("refuses a product that does not exist", () => {
     const { ownerId, conversation } = seedConversation();
     const { input } = jobInput();
-    // The free product covers 3,000 messages; the seeded conversation is 1,200,
-    // so shrink the product limit by using a conversation that exceeds it.
     expect(() =>
       createAnalysisJob({
         ownerId,
@@ -200,6 +198,38 @@ describe("creating a job", () => {
         input,
       }),
     ).toThrowError(AppError);
+  });
+
+  it("accepts a conversation larger than the plan reads, rather than refusing it", () => {
+    // The whole point of budgeting the reading: a long conversation produces
+    // a partial analysis that admits it is partial. Refusing it - which is
+    // what the UI used to do, while the note beside the button promised
+    // clipping - is the one outcome that is not allowed.
+    const { ownerId, conversation } = seedConversation();
+    const { input } = jobInput();
+
+    const { job } = createAnalysisJob({
+      ownerId,
+      conversationId: conversation.id,
+      productId: "free",
+      modules: ["COMMUNICATION"],
+      input: {
+        ...input,
+        coverage: {
+          totalMessages: 94_000,
+          analysedMessages: 400,
+          totalCharacters: 940_000,
+          analysedCharacters: 30_000,
+          partial: true,
+          budgetCharacters: 30_000,
+          analysedThrough: "2024-06-01T12:00:00",
+        },
+      },
+    });
+
+    expect(job.id).toBeTruthy();
+    const stored = getJobInput(job.id)!.payload as AnalysisJobInput;
+    expect(stored.coverage?.partial).toBe(true);
   });
 
   it("refuses an unavailable product", () => {

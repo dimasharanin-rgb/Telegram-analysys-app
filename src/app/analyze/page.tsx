@@ -246,17 +246,15 @@ export default function AnalyzePage() {
     );
   }, [importState, productId]);
 
-  const tooLarge =
-    product !== null &&
-    importState !== null &&
-    importState.statistics.general.totalMessages > product.maxMessages;
-
+  // Size is no longer a reason to refuse. A conversation past the budget is
+  // read as far as the budget goes and the report says so, which is what the
+  // card below promises - leaving the old rejection in place made the button
+  // contradict the note next to it.
   const canContinue =
     importState !== null &&
     selfId !== null &&
     product !== null &&
     product.available &&
-    !tooLarge &&
     modules.length > 0;
 
   return (

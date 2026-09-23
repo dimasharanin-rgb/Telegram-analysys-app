@@ -7,6 +7,7 @@ import { MODULE_DEFINITIONS } from "@/lib/analysis/modules";
 import { PRODUCTS, formatPrice, isFree } from "@/lib/billing/products";
 import { api } from "@/lib/client/api";
 import { cx, formatNumber } from "@/lib/client/format";
+import { sizeTierFor } from "@/lib/analysis/size-tiers";
 import { toUserFacing } from "@/lib/client/use-remote";
 import type { UserFacingError } from "@/lib/errors";
 
@@ -71,7 +72,13 @@ export function PricingPlans({ returnPath = "/account" }: { returnPath?: string 
               </p>
 
               <ul className="mt-4 space-y-1.5 text-sm leading-relaxed text-ink-soft">
-                <li>Up to {formatNumber(product.maxMessages)} messages</li>
+                <li>
+                  {sizeTierFor(product.id).maxCharacters === null
+                    ? "Reads the whole conversation"
+                    : `Reads up to ${formatNumber(
+                        sizeTierFor(product.id).maxCharacters!,
+                      )} characters of it`}
+                </li>
                 <li>
                   {product.allowedModules.length === 1
                     ? MODULE_DEFINITIONS[product.allowedModules[0]!].name
