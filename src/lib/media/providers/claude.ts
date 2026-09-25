@@ -40,7 +40,7 @@ import type {
  * Moderation
  * ---------------------------------------------------------------------- */
 
-const MODERATION_SYSTEM = `You are a content classifier. You look at one image and return one label.
+export const MODERATION_SYSTEM = `You are a content classifier. You look at one image and return one label.
 
 You are not describing the image, not interpreting it and not commenting on it. Return the label and nothing else.
 
@@ -114,7 +114,7 @@ export class ClaudeModerationProvider implements ModerationProvider {
  * Vision
  * ---------------------------------------------------------------------- */
 
-const VISION_SYSTEM = `You describe one image for a conversation analysis. The image was attached to a message in a private chat.
+export const VISION_SYSTEM = `You describe one image for a conversation analysis. The image was attached to a message in a private chat.
 
 Rules:
 - Describe what is visibly there in one or two plain sentences. Do not guess at feelings, relationships or motives.
@@ -147,7 +147,7 @@ const visionSchema = z.object({
  * asks for the words rather than an impression of the layout, and the task
  * routes to DOCUMENT_READ so its cost is separable from image work.
  */
-const DOCUMENT_SYSTEM = `You read one document that was shared in a private conversation, for a conversation analysis.
+export const DOCUMENT_SYSTEM = `You read one document that was shared in a private conversation, for a conversation analysis.
 
 Rules:
 - Copy the document's meaningful text into extractedText, verbatim. Preserve the wording exactly: it may be quoted in a report. Tables may be flattened to lines, but do not summarise or reword anything.
