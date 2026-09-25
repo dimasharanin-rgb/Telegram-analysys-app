@@ -118,9 +118,9 @@ export function analysisShape(options: {
   // Transcription is not a model call in this pipeline, so it contributes no
   // tokens here. Its cost lives in the media budget instead.
 
-  for (const module of options.modules) {
+  for (const analysisModule of options.modules) {
     shapes.push({
-      task: module,
+      task: analysisModule,
       inputTokens: options.conversationTokens,
       outputTokens: 1_400,
       // Every module reads the same conversation prefix, so all but the first

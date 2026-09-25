@@ -280,9 +280,11 @@ test("pricing lists what each option unlocks", async ({ page }) => {
     page.getByRole("heading", { name: "What an analysis costs" }),
   ).toBeVisible();
   await expect(page.getByRole("heading", { name: "Deep text analysis" })).toBeVisible();
-  // An option this build cannot deliver is shown with the reason, not hidden.
+  // An option this deployment cannot deliver is shown with the reason, not
+  // hidden. Media analysis is built, but it needs a moderation provider and a
+  // transcription key, so it stays off until an operator turns it on.
   await expect(page.getByRole("heading", { name: "Multimodal" })).toBeVisible();
-  await expect(page.getByText(/Media processing is not implemented yet/)).toBeVisible();
+  await expect(page.getByText(/Media analysis is not enabled/)).toBeVisible();
 });
 
 test("a file that is not a Telegram export fails with a readable message", async ({

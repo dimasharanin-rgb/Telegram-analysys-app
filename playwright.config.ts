@@ -13,6 +13,12 @@ const MOCK_PORT = Number(process.env.E2E_MOCK_PORT ?? 3199);
  * Point at a Chromium that is already on the machine, for environments that
  * ship one instead of letting Playwright download a matching build. Left unset,
  * Playwright uses its own browser as usual.
+ *
+ * Needed where the image's browsers are older than the installed Playwright:
+ * it asks for a `chrome-headless-shell` build that is not there, and the full
+ * Chromium beside it works fine. On this container:
+ *
+ *   PLAYWRIGHT_CHROMIUM_PATH=/opt/pw-browsers/chromium npm run test:e2e
  */
 const executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH;
 
