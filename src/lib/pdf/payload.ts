@@ -125,6 +125,30 @@ export const pdfReportSchema = z.object({
     .max(8)
     .optional(),
 
+  /**
+   * What happened to the attachments.
+   *
+   * Counts and safe labels, matching what the page shows, because §19 asks for
+   * one result read by both. Note what cannot be here: no image is embedded, no
+   * classification is named, and a withheld attachment contributes a line
+   * saying it existed and nothing about what was in it - §36.
+   */
+  media: z
+    .object({
+      summary: z.string().max(400),
+      items: z
+        .array(
+          z.object({
+            when: z.string().max(40),
+            participant: z.string().max(40),
+            label: z.string().max(80),
+            detail: z.string().max(240).nullable(),
+          }),
+        )
+        .max(40),
+    })
+    .optional(),
+
   conflicts: z
     .array(
       z.object({

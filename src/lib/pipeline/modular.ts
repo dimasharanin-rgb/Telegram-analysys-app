@@ -59,7 +59,40 @@ import { runAnalysisPipeline } from "./run";
  * Result
  * ---------------------------------------------------------------------- */
 
-export const ANALYSIS_RESULT_VERSION = 2;
+export const ANALYSIS_RESULT_VERSION = 3;
+
+/**
+ * What the media pipeline did, as the report may describe it.
+ *
+ * Counts and safe labels only: no classification names, no provider names, no
+ * file paths. §19 asks for one canonical result that the web page and the PDF
+ * both read, and this is the media part of it - so the two cannot disagree
+ * about how many voice messages were transcribed.
+ */
+export interface MediaFindings {
+  /** Attachments the analysis intended to look at. */
+  considered: number;
+  /** Images and documents that were described. */
+  described: number;
+  transcribed: number;
+  /** Present but not examined: sensitive, irrelevant, or beyond the allowance. */
+  withheld: number;
+  /** A provider failed. The message survived; the attachment went unread. */
+  failed: number;
+  /** One line per attachment the reader may see, in conversation order. */
+  items: MediaFindingItem[];
+}
+
+export interface MediaFindingItem {
+  /** Wall-clock time of the message it was attached to. */
+  at: string;
+  /** Pseudonymous participant label, matching the rest of the report. */
+  participant: string;
+  /** Safe label: "Voice message — transcript available", "Private image — not analyzed". */
+  label: string;
+  /** What was read, when anything was. Never a classification. */
+  detail: string | null;
+}
 
 export interface AnalysisResultV2 {
   version: typeof ANALYSIS_RESULT_VERSION;
@@ -72,6 +105,8 @@ export interface AnalysisResultV2 {
    * the PDF disclose the same thing without recomputing it.
    */
   coverage: Coverage | null;
+  /** What happened to the attachments. Null when there were none. */
+  media: MediaFindings | null;
   /** Everything the MVP produced, unchanged in shape. */
   base: Analysis;
   interaction: InteractionFindings | null;
@@ -303,6 +338,9 @@ export async function runModularAnalysis(
       strategy: base.strategy,
       confidence: base.analysis.overview.confidence,
       coverage: input.coverage ?? null,
+      // Filled in by the job service, which is where the media stage runs. The
+      // pipeline itself never sees an attachment.
+      media: null,
       base: cleanedBase,
       interaction: deduped.interaction,
       emotional: deduped.emotional,

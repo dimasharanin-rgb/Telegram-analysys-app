@@ -8,6 +8,8 @@ import type { EvidenceLookup } from "@/components/EvidenceDrawer";
 import { cx, formatDate, formatNumber } from "@/lib/client/format";
 import { SectionTitle } from "@/components/ui/Card";
 import { EmptyModule, FindingCard } from "./FindingCard";
+import { MediaFindingsPanel } from "./MediaFindings";
+import type { MediaFindings } from "@/lib/pipeline/modular";
 
 const DIRECTION_LABEL = { up: "↑", down: "↓", flat: "→" } as const;
 
@@ -15,15 +17,23 @@ export function TimelineTab({
   timeline,
   advanced,
   messages,
+  media,
 }: {
   timeline: TimelineFindings | null;
   advanced: AdvancedStatistics;
   messages: EvidenceLookup;
+  /** Attachments belong in the conversation's timeline, not a page of their own. */
+  media: MediaFindings | null;
 }) {
   const { periods, changes, comparable, note } = advanced.timeline;
 
   if (!comparable) {
-    return <EmptyModule title="Not enough history to compare periods" reason={note} />;
+    return (
+      <div className="space-y-8">
+        <EmptyModule title="Not enough history to compare periods" reason={note} />
+        {media ? <MediaFindingsPanel media={media} /> : null}
+      </div>
+    );
   }
 
   return (
@@ -168,6 +178,8 @@ export function TimelineTab({
           ) : null}
         </section>
       ) : null}
+
+      {media ? <MediaFindingsPanel media={media} /> : null}
     </div>
   );
 }

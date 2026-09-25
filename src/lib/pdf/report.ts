@@ -93,6 +93,7 @@ function draw(doc: PDFKit.PDFDocument, fonts: Fonts, payload: PdfReportPayload):
   drawProfiles(doc, fonts, payload);
   drawInteraction(doc, fonts, payload);
   drawTimeline(doc, fonts, payload);
+  drawMedia(doc, fonts, payload);
   drawConflicts(doc, fonts, payload);
   drawKeyInsights(doc, fonts, payload);
   drawSuggestions(doc, fonts, payload);
@@ -266,6 +267,35 @@ function drawTimeline(
     paragraph(doc, fonts, "Earlier", change.earlier);
     paragraph(doc, fonts, "Recently", change.later);
     doc.y += 6;
+  }
+}
+
+/**
+ * The attachments section.
+ *
+ * No image is drawn. §36 is explicit that sensitive media must not be embedded,
+ * and the simplest way to be sure of that is for this function to have no code
+ * path that could place one - it writes text, and the only text it has is a
+ * label and whatever was read out of the file.
+ */
+function drawMedia(
+  doc: PDFKit.PDFDocument,
+  fonts: Fonts,
+  payload: PdfReportPayload,
+): void {
+  const media = payload.media;
+  if (media === undefined || media.items.length === 0) return;
+
+  sectionHeading(doc, fonts, "Attachments", 90);
+  paragraph(doc, fonts, "", media.summary);
+  doc.y += 4;
+
+  for (const item of media.items) {
+    entryTitle(doc, fonts, `${item.label} — ${item.participant}, ${item.when}`);
+    if (item.detail !== null && item.detail.length > 0) {
+      paragraph(doc, fonts, "", `\u201c${item.detail}\u201d`);
+    }
+    doc.y += 4;
   }
 }
 

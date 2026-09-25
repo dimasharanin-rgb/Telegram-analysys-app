@@ -18,6 +18,7 @@ import type { DeclaredAttachment } from "@/lib/api/schemas";
 import { enrichExcerpts } from "@/lib/ai/media-context";
 import type { AttachmentAnalyser } from "@/lib/ai/claude";
 import { processJobMedia } from "@/server/media/process";
+import { summariseMedia } from "./process-media-summary";
 import {
   cacheKeyFor,
   digestExcerpts,
@@ -415,6 +416,11 @@ export async function runAnalysisJob(options: RunJobOptions): Promise<RunJobResu
       return { job: reused, result: cached };
     }
 
+    const mediaSummary = summariseMedia(mediaOutcome, {
+      timeById: timeFromExcerpts(payload.excerpts),
+      participantById: participantFromExcerpts(payload.excerpts),
+    });
+
     const { result } = await runModularAnalysis({
       input: {
         ...payload,
@@ -428,9 +434,14 @@ export async function runAnalysisJob(options: RunJobOptions): Promise<RunJobResu
       },
     });
 
-    jobs.saveJobResult(jobId, result);
-    storeCachedResult(cacheKey, ownerId, jobId, result);
-    pruneInputToEvidence(jobId, payload, result);
+    // The media section is attached here rather than inside the pipeline,
+    // because the pipeline never sees an attachment and should not have to
+    // pretend otherwise.
+    const withMedia = { ...result, media: mediaSummary };
+
+    jobs.saveJobResult(jobId, withMedia);
+    storeCachedResult(cacheKey, ownerId, jobId, withMedia);
+    pruneInputToEvidence(jobId, payload, withMedia);
     const completed = jobs.transitionJob(jobId, "COMPLETED");
 
     log.info("job.completed", {
@@ -563,4 +574,29 @@ function mediaKindForTask(task: string): string | null {
   if (task.startsWith("SCREENSHOT")) return "image";
   if (task.startsWith("DOCUMENT_")) return "document";
   return null;
+}
+
+/** Wall-clock time per message id, from the excerpts' own start times. */
+function timeFromExcerpts(excerpts: readonly Excerpt[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const excerpt of excerpts) {
+    for (const message of excerpt.messages) {
+      // The excerpt records minutes from its own start, which is enough to
+      // place an attachment without carrying absolute timestamps per message.
+      const at = new Date(
+        new Date(excerpt.startIso).getTime() + message.m * 60_000,
+      ).toISOString();
+      out.set(message.id, at);
+    }
+  }
+  return out;
+}
+
+/** Pseudonymous participant label per message id. */
+function participantFromExcerpts(excerpts: readonly Excerpt[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const excerpt of excerpts) {
+    for (const message of excerpt.messages) out.set(message.id, message.p);
+  }
+  return out;
 }

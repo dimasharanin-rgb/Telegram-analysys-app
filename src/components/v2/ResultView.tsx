@@ -229,6 +229,7 @@ export function ResultView({
               timeline={result.result.timeline}
               advanced={statistics.advanced}
               messages={messages}
+              media={result.result.media ?? null}
             />
           ) : null}
 

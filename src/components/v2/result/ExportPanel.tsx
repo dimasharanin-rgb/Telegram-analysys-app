@@ -143,6 +143,23 @@ export function ExportPanel({ detail, result, pseudonyms, nameFor }: ExportPanel
           }
         : {}),
 
+      ...(analysis.media && analysis.media.items.length > 0
+        ? {
+            media: {
+              summary: mediaSummaryLine(analysis.media).slice(0, 400),
+              items: analysis.media.items.slice(0, 40).map((item) => ({
+                when: displayDate(item.at).slice(0, 40),
+                participant: nameFor(item.participant).slice(0, 40),
+                // Already safe: the label is built by publicMediaLabel and can
+                // never contain a classification. Nothing here re-derives it.
+                label: item.label.slice(0, 80),
+                detail:
+                  item.detail === null ? null : text(item.detail).slice(0, 240),
+              })),
+            },
+          }
+        : {}),
+
       ...(analysis.conflicts
         ? {
             conflicts: analysis.conflicts.conflicts.slice(0, 5).map((conflict) => ({
@@ -225,4 +242,35 @@ export function ExportPanel({ detail, result, pseudonyms, nameFor }: ExportPanel
       </p>
     </div>
   );
+}
+
+/**
+ * The attachments summary, worded the same way the page words it.
+ *
+ * Duplicated wording would be the obvious way for the page and the PDF to
+ * quietly disagree, so both build from the same counts on the same result.
+ */
+function mediaSummaryLine(media: NonNullable<JobResult["result"]["media"]>): string {
+  const parts: string[] = [];
+  if (media.transcribed > 0) parts.push(`${media.transcribed} transcribed`);
+  if (media.described > 0) parts.push(`${media.described} read for content`);
+  if (media.withheld > 0) parts.push(`${media.withheld} counted but not examined`);
+  if (media.failed > 0) parts.push(`${media.failed} could not be processed`);
+
+  const detail = parts.length > 0 ? ` — ${parts.join(", ")}.` : ".";
+  return `${media.considered} ${
+    media.considered === 1 ? "attachment" : "attachments"
+  } inside the analysed period${detail}`;
+}
+
+/** Date only: a time of day adds nothing and narrows what the report exposes. */
+function displayDate(at: string): string {
+  if (at.length === 0) return "";
+  const date = new Date(at);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }
