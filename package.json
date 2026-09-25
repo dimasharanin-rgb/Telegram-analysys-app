@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "fixture": "tsx scripts/generate-fixture.ts",
     "verify": "npm run typecheck && npm run lint && npm run test && npm run build",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "bench": "tsx scripts/benchmark.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.127.0",
