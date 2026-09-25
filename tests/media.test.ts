@@ -123,17 +123,17 @@ describe("validation runs against untrusted input", () => {
     expect(result.reason).toBe("too-large");
   });
 
-  it("refuses a video longer than the ceiling", () => {
-    const result = validateAttachment(
-      attachment({
-        kind: MessageType.VIDEO,
-        mimeType: "video/mp4",
-        durationSeconds: 4_000,
-      }),
-      GENEROUS,
-    );
-    expect(result.ok).toBe(false);
-    expect(result.reason).toBe("too-long");
+  it("refuses video outright, whatever its length", () => {
+    // V3 analyses no video at all, so this is not a duration judgement: a
+    // three-second clip is refused for the same reason an hour-long one is.
+    for (const durationSeconds of [3, 4_000]) {
+      const result = validateAttachment(
+        attachment({ kind: MessageType.VIDEO, mimeType: "video/mp4", durationSeconds }),
+        GENEROUS,
+      );
+      expect(result.ok).toBe(false);
+      expect(result.reason).toBe("unsupported-type");
+    }
   });
 
   it("refuses an attachment with nothing to read", () => {
@@ -254,13 +254,15 @@ describe("selection", () => {
   it("leaves stickers alone", () => {
     const messages = [
       message(1, {
-        media: [attachment({ kind: MessageType.STICKER })],
+        media: [attachment({ kind: MessageType.STICKER, mimeType: "image/webp" })],
         hasMedia: true,
       }),
     ];
     const result = selectMedia(messages, GENEROUS);
 
     expect(result.selected).toHaveLength(0);
+    // Excluded because processing decoration costs the same as processing a
+    // photograph of something, not because the file was unreadable.
     expect(result.skipped[0]!.reason).toBe("not-relevant");
   });
 

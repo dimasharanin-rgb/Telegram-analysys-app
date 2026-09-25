@@ -71,6 +71,49 @@ interface CallOptions<T> {
   signal?: AbortSignal;
   /** Free-form label for logs and per-module accounting, e.g. `chunk_3`. */
   stage: string;
+  /**
+   * Images or documents to put in front of the model.
+   *
+   * Only the media gateway reaches this, and only for content it has already
+   * cleared. Nothing else in the application builds an attachment request.
+   */
+  attachments?: readonly PromptAttachment[];
+}
+
+/**
+ * One file, ready to send.
+ *
+ * Base64 rather than a URL on purpose: a URL would mean the provider fetching
+ * from us, which would mean private media reachable over HTTP. It never is.
+ */
+export interface PromptAttachment {
+  kind: "image" | "document";
+  /** `image/jpeg`, `image/png`, `application/pdf`. */
+  mimeType: string;
+  base64: string;
+}
+
+/**
+ * The narrow capability the media providers need.
+ *
+ * Declared separately from `AIAnalysisService` so that adding attachment
+ * support did not widen the interface every analysis stub has to implement,
+ * and so a media provider depends on exactly one method.
+ */
+export interface AttachmentAnalyser {
+  runAttachmentTask<T>(options: AttachmentTaskOptions<T>): Promise<T>;
+}
+
+export interface AttachmentTaskOptions<T> {
+  aiTask: AiTask;
+  /** Instructions. Kept short: these run on the cheap tier. */
+  system: string;
+  instruction: string;
+  attachments: readonly PromptAttachment[];
+  schema: z.ZodType<T>;
+  maxOutputTokens?: number;
+  signal?: AbortSignal;
+  stage: string;
 }
 
 export class ClaudeAnalysisService implements AIAnalysisService {
@@ -196,6 +239,28 @@ export class ClaudeAnalysisService implements AIAnalysisService {
     });
   }
 
+  /**
+   * Runs a task whose input includes a file.
+   *
+   * Used by the media gateway's Claude-backed providers. Routed like any other
+   * task, which means image work lands on the cheap tier rather than on
+   * whatever model the analysis modules happen to use.
+   */
+  async runAttachmentTask<T>(options: AttachmentTaskOptions<T>): Promise<T> {
+    return this.call({
+      system: options.system,
+      userMessage: options.instruction,
+      schema: options.schema,
+      task: options.aiTask,
+      attachments: options.attachments,
+      ...(options.maxOutputTokens !== undefined
+        ? { maxOutputTokens: options.maxOutputTokens }
+        : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
+      stage: options.stage,
+    });
+  }
+
   /* ---------------------------------------------------------------------
    * Request plumbing
    * ------------------------------------------------------------------ */
@@ -252,7 +317,7 @@ export class ClaudeAnalysisService implements AIAnalysisService {
             effort,
             format: zodOutputFormat(options.schema),
           },
-          messages: [{ role: "user", content: userContent }],
+          messages: [{ role: "user", content: buildUserContent(userContent, options.attachments) }],
         },
         options.signal ? { signal: options.signal } : undefined,
       );
@@ -349,6 +414,42 @@ export class ClaudeAnalysisService implements AIAnalysisService {
 /* -------------------------------------------------------------------------
  * Helpers
  * ---------------------------------------------------------------------- */
+
+/**
+ * Assembles the user turn.
+ *
+ * Files come before the text, which is what the provider's own guidance asks
+ * for and what makes the instruction read as being about them. A request with
+ * no attachments stays a plain string so the common path is unchanged.
+ */
+function buildUserContent(
+  text: string,
+  attachments: readonly PromptAttachment[] | undefined,
+): string | Anthropic.ContentBlockParam[] {
+  if (attachments === undefined || attachments.length === 0) return text;
+
+  const blocks: Anthropic.ContentBlockParam[] = attachments.map((attachment) =>
+    attachment.kind === "image"
+      ? {
+          type: "image" as const,
+          source: {
+            type: "base64" as const,
+            media_type: attachment.mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+            data: attachment.base64,
+          },
+        }
+      : {
+          type: "document" as const,
+          source: {
+            type: "base64" as const,
+            media_type: "application/pdf" as const,
+            data: attachment.base64,
+          },
+        },
+  );
+
+  return [...blocks, { type: "text" as const, text }];
+}
 
 function describeIssues(error: z.ZodError): string {
   return error.issues

@@ -116,14 +116,39 @@ export function mediaLimitsFor(productId: string): MediaLimits {
  * Validation
  * ---------------------------------------------------------------------- */
 
-/** Mime prefixes a processor could conceivably read. */
-const ACCEPTED_PREFIXES: Record<MediaCategory, string[]> = {
-  image: ["image/"],
-  voice: ["audio/"],
-  audio: ["audio/"],
-  video: ["video/"],
-  document: ["application/pdf", "text/"],
-  sticker: ["image/"],
+/**
+ * Mime types a provider can actually read.
+ *
+ * Exact types rather than `image/` and `audio/` prefixes. A prefix list looks
+ * more permissive and is in fact worse: a TIFF would pass validation, be read
+ * off disk and be uploaded to a moderation service before anything discovered
+ * that no provider can decode it. Refusing it here means the bytes never move.
+ */
+const ACCEPTED_TYPES: Record<MediaCategory, readonly string[]> = {
+  image: ["image/jpeg", "image/png", "image/gif", "image/webp"],
+  voice: [
+    "audio/ogg",
+    "audio/opus",
+    "audio/mpeg",
+    "audio/mp3",
+    "audio/mp4",
+    "audio/m4a",
+    "audio/x-m4a",
+    "audio/aac",
+    "audio/wav",
+    "audio/x-wav",
+    "audio/webm",
+    "audio/flac",
+  ],
+  get audio(): readonly string[] {
+    return this.voice;
+  },
+  // V3 analyses no video. The list is empty rather than absent so a video
+  // attachment is still described by the model and still counted - it simply
+  // never validates for processing.
+  video: [],
+  document: ["application/pdf"],
+  sticker: ["image/webp", "image/png"],
 };
 
 export type RejectionReason =
@@ -158,9 +183,12 @@ export function validateAttachment(
     return { ok: false, category, reason: "no-reference" };
   }
 
-  const mime = attachment.mimeType?.toLowerCase() ?? "";
-  const accepted = ACCEPTED_PREFIXES[category].some((prefix) => mime.startsWith(prefix));
-  if (!accepted) return { ok: false, category, reason: "unsupported-type" };
+  // Parameters like `; codecs=opus` are part of a real Telegram export's mime
+  // strings, so compare the type alone.
+  const mime = (attachment.mimeType?.toLowerCase().split(";")[0] ?? "").trim();
+  if (!ACCEPTED_TYPES[category].includes(mime)) {
+    return { ok: false, category, reason: "unsupported-type" };
+  }
 
   if ((attachment.sizeBytes ?? 0) > limits.maxFileBytes) {
     return { ok: false, category, reason: "too-large" };
