@@ -11,6 +11,7 @@
  */
 
 import type { ConsentDataType, ConsentStatus } from "@/lib/consent/state";
+import { versionDisclosesMedia } from "@/lib/consent/document";
 import { listConsentForConversation } from "@/server/repositories/consent";
 import { listParticipants } from "@/server/repositories/conversations";
 import type { ParticipantRecord } from "@/server/repositories/conversations";
@@ -147,7 +148,15 @@ export function evaluateConsentGate(conversationId: string): ConsentGateResult {
     .filter((requirement) => requirement.required && requirement.satisfied)
     .map((requirement) => {
       const record = requests.find((entry) => entry.id === requirement.consentRequestId);
-      return record?.dataTypes ?? [];
+      if (record === undefined) return [];
+
+      // A consent given under a document that promised attachments were never
+      // opened does not authorise opening them, whatever its stored data types
+      // say. The document is what the participant relied on.
+      if (!versionDisclosesMedia(record.documentVersion)) {
+        return record.dataTypes.filter((type) => type === "TEXT");
+      }
+      return record.dataTypes;
     });
 
   const consentedDataTypes = intersectDataTypes(grantedByRequired);

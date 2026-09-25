@@ -12,7 +12,36 @@
 
 import type { ConsentDataType } from "./state";
 
-export const CONSENT_DOCUMENT_VERSION = "1.0";
+export const CONSENT_DOCUMENT_VERSION = "1.1";
+
+/**
+ * The first version whose text describes media being examined.
+ *
+ * Version 1.0 told participants that "photos, voice messages and videos are
+ * counted but never opened or sent". Anyone who agreed to that agreed to a
+ * text analysis, whatever data types their request happened to list - so a
+ * consent recorded under an earlier document does not authorise media, and the
+ * gate enforces that rather than trusting the stored list alone.
+ */
+export const MEDIA_DISCLOSED_FROM_VERSION = "1.1";
+
+/** Whether a consent given under `version` covers attachments being examined. */
+export function versionDisclosesMedia(version: string): boolean {
+  return compareVersions(version, MEDIA_DISCLOSED_FROM_VERSION) >= 0;
+}
+
+/** Numeric, part by part, so "1.10" sorts above "1.9" rather than below it. */
+function compareVersions(a: string, b: string): number {
+  const left = a.split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const right = b.split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const length = Math.max(left.length, right.length);
+
+  for (let i = 0; i < length; i += 1) {
+    const diff = (left[i] ?? 0) - (right[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
 
 export interface ConsentDocumentInput {
   /** Display name of the person being asked. */
@@ -50,6 +79,47 @@ const DATA_TYPE_LABELS: Record<ConsentDataType, string> = {
 };
 
 const ALL_DATA_TYPES: ConsentDataType[] = ["TEXT", "IMAGES", "AUDIO", "VIDEO"];
+
+/**
+ * What actually happens to attachments, given what this request covers.
+ *
+ * Written per data type rather than as one fixed sentence, because the document
+ * is the thing a participant relies on: a claim that photographs are never
+ * opened has to stop being made the moment a request covers photographs. Each
+ * line describes a real step in the pipeline, including the ones that mean
+ * something is *not* examined.
+ */
+function mediaScopeLines(included: ReadonlySet<ConsentDataType>): string[] {
+  const lines: string[] = [];
+
+  if (included.has("IMAGES")) {
+    lines.push(
+      "Photos are checked automatically for sensitive content before anything else happens to them. Only those the check finds ordinary, and that the conversation around them suggests are relevant, are described by an AI system; a short description, and any text visible in the image, may appear in the report.",
+    );
+    lines.push(
+      "Photos the check finds intimate, sexual, violent or otherwise sensitive are not described and are not sent for analysis. The report records only that an image was sent, by whom and when.",
+    );
+  } else {
+    lines.push("Photos and images are counted. They are never opened or sent.");
+  }
+
+  if (included.has("AUDIO")) {
+    lines.push(
+      "Voice messages are transcribed by a speech-to-text service, and the transcript is treated as part of the conversation: it may be quoted in the report in the same way a written message can be.",
+    );
+  } else {
+    lines.push("Voice messages and audio are counted. They are never opened or sent.");
+  }
+
+  // Unconditional: V3 analyses no video, whatever a request happens to list.
+  lines.push("Videos are counted. They are never opened or sent.");
+
+  lines.push(
+    "Attachments are uploaded only when they fall inside the part of the conversation being analysed, and are deleted once the report has been produced.",
+  );
+
+  return lines;
+}
 
 export function buildConsentDocument(input: ConsentDocumentInput): ConsentDocument {
   const included = new Set(input.dataTypes);
@@ -96,7 +166,7 @@ export function buildConsentDocument(input: ConsentDocumentInput): ConsentDocume
         heading: "5. Processing scope",
         body: [
           "The whole conversation is read on the requester's own device to compute statistics. Only a selection of excerpts — a bounded subset of messages, chosen to cover the conversation — is sent for AI analysis.",
-          "Photos, voice messages and videos are counted but never opened or sent, in this version of the application.",
+          ...mediaScopeLines(included),
         ],
       },
       {

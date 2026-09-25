@@ -10,7 +10,11 @@ import {
   CONSENT_STATUSES,
   type ConsentDataType,
 } from "@/lib/consent/state";
-import { buildConsentDocument, CONSENT_DOCUMENT_VERSION } from "@/lib/consent/document";
+import {
+  buildConsentDocument,
+  CONSENT_DOCUMENT_VERSION,
+  versionDisclosesMedia,
+} from "@/lib/consent/document";
 import { AppError } from "@/lib/errors";
 import { InternalConsentProvider } from "@/server/consent/provider";
 import { evaluateConsentGate } from "@/server/consent/gate";
@@ -369,5 +373,100 @@ describe("consent scope is per content type", () => {
 
     provider.withdraw(created.token);
     expect(evaluateConsentGate(conversation.id).consentedDataTypes).toEqual([]);
+  });
+});
+
+describe("the document is what a participant relied on", () => {
+  it("describes media processing when the request covers it", () => {
+    const document = buildConsentDocument({
+      participantName: "Alex",
+      requestedByLabel: "Sam",
+      conversationTitle: "Alex and Sam",
+      messageCount: 1_200,
+      dateRange: { start: "2024-01-01", end: "2024-06-01" },
+      expiresAt: "2024-07-01T00:00:00.000Z",
+      dataTypes: ["TEXT", "IMAGES", "AUDIO"],
+      purpose: "Communication analysis.",
+      aiProvider: "Anthropic (Claude)",
+    });
+    const scope = document.sections.find((s) => s.heading.includes("Processing scope"))!;
+    const text = scope.body.join(" ");
+
+    expect(text).toContain("checked automatically for sensitive content");
+    expect(text).toContain("transcribed");
+    // The old blanket promise must be gone once images are in scope.
+    expect(text).not.toContain("Photos and images are counted. They are never opened");
+  });
+
+  it("still promises attachments are untouched when they are not in scope", () => {
+    const document = buildConsentDocument({
+      participantName: "Alex",
+      requestedByLabel: "Sam",
+      conversationTitle: "Alex and Sam",
+      messageCount: 1_200,
+      dateRange: { start: "2024-01-01", end: "2024-06-01" },
+      expiresAt: "2024-07-01T00:00:00.000Z",
+      dataTypes: ["TEXT"],
+      purpose: "Communication analysis.",
+      aiProvider: "Anthropic (Claude)",
+    });
+    const text = document.sections
+      .find((s) => s.heading.includes("Processing scope"))!
+      .body.join(" ");
+
+    expect(text).toContain("never opened or sent");
+    expect(text).not.toContain("transcribed");
+  });
+
+  it("never claims video is analysed, even when a request lists it", () => {
+    const document = buildConsentDocument({
+      participantName: "Alex",
+      requestedByLabel: "Sam",
+      conversationTitle: "Alex and Sam",
+      messageCount: 1_200,
+      dateRange: { start: "2024-01-01", end: "2024-06-01" },
+      expiresAt: "2024-07-01T00:00:00.000Z",
+      dataTypes: ["TEXT", "IMAGES", "AUDIO", "VIDEO"],
+      purpose: "Communication analysis.",
+      aiProvider: "Anthropic (Claude)",
+    });
+    const text = document.sections
+      .find((s) => s.heading.includes("Processing scope"))!
+      .body.join(" ");
+
+    expect(text).toContain("Videos are counted. They are never opened or sent.");
+  });
+
+  it("says attachments are deleted once the report exists", () => {
+    const document = buildConsentDocument({
+      participantName: "Alex",
+      requestedByLabel: "Sam",
+      conversationTitle: "Alex and Sam",
+      messageCount: 1_200,
+      dateRange: { start: "2024-01-01", end: "2024-06-01" },
+      expiresAt: "2024-07-01T00:00:00.000Z",
+      dataTypes: ["TEXT", "IMAGES"],
+      purpose: "Communication analysis.",
+      aiProvider: "Anthropic (Claude)",
+    });
+    const text = document.sections
+      .find((s) => s.heading.includes("Processing scope"))!
+      .body.join(" ");
+    expect(text).toContain("deleted once the report has been produced");
+  });
+
+  it("does not let an older consent authorise media it was never told about", () => {
+    // Version 1.0 said attachments were never opened. Someone who agreed to
+    // that agreed to a text analysis, whatever the stored data types say.
+    expect(versionDisclosesMedia("1.0")).toBe(false);
+    expect(versionDisclosesMedia("1.1")).toBe(true);
+    expect(versionDisclosesMedia(CONSENT_DOCUMENT_VERSION)).toBe(true);
+  });
+
+  it("compares versions numerically, not as strings", () => {
+    // "1.10" is later than "1.9"; a string comparison would say otherwise.
+    expect(versionDisclosesMedia("1.10")).toBe(true);
+    expect(versionDisclosesMedia("0.9")).toBe(false);
+    expect(versionDisclosesMedia("2.0")).toBe(true);
   });
 });
