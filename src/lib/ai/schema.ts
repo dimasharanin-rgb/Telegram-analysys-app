@@ -132,8 +132,13 @@ export const excerptMessageSchema = z.object({
   p: z.string().max(8),
   /** Minutes since the start of this excerpt, keeping rhythm without dates. */
   m: z.number().int().nonnegative(),
-  /** Message text, truncated. Empty for a media message. */
-  t: z.string().max(1000),
+  /**
+   * Message text, truncated. Also carries what the media pipeline learned - a
+   * voice note's transcript, a screenshot's text - because that is what the
+   * participant actually said or showed. Roomier than the text-only limit was
+   * for exactly that reason.
+   */
+  t: z.string().max(2000),
   /** Present only when the message is media, as a short marker. */
   media: z.string().max(20).optional(),
 });

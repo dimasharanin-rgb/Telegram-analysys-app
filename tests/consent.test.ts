@@ -8,6 +8,7 @@ import {
   grantsPermission,
   isTerminal,
   CONSENT_STATUSES,
+  type ConsentDataType,
 } from "@/lib/consent/state";
 import { buildConsentDocument, CONSENT_DOCUMENT_VERSION } from "@/lib/consent/document";
 import { AppError } from "@/lib/errors";
@@ -312,5 +313,61 @@ describe("consent document", () => {
     expect(text).toContain("not a qualified electronic signature");
     expect(text).not.toContain("legally binding");
     expect(text).not.toContain("gdpr compliant");
+  });
+});
+
+/* -------------------------------------------------------------------------
+ * Media scope
+ * ---------------------------------------------------------------------- */
+
+describe("consent scope is per content type", () => {
+  function requestWith(dataTypes: ConsentDataType[]) {
+    const { ownerId, conversation, other, provider } = setup();
+    const created = provider.createRequest({
+      ownerId,
+      conversationId: conversation.id,
+      participantId: other.id,
+      requestedByLabel: "Sam Okonkwo",
+      dataTypes,
+      purpose: "Communication analysis.",
+      aiProvider: "Anthropic (Claude)",
+      validForDays: 14,
+    });
+    return { conversation, provider, created };
+  }
+
+  it("reports nothing consented while a decision is outstanding", () => {
+    const { conversation } = requestWith(["TEXT", "IMAGES"]);
+    expect(evaluateConsentGate(conversation.id).consentedDataTypes).toEqual([]);
+  });
+
+  it("reports exactly what was agreed to", () => {
+    const { conversation, provider, created } = requestWith(["TEXT", "IMAGES", "AUDIO"]);
+    provider.decide(created.token, "ACCEPTED");
+
+    const gate = evaluateConsentGate(conversation.id);
+    expect(gate.satisfied).toBe(true);
+    expect(gate.consentedDataTypes.sort()).toEqual(["AUDIO", "IMAGES", "TEXT"]);
+  });
+
+  it("does not infer media consent from consent to analyse text", () => {
+    // Section 33: agreeing to have words read is not agreeing to have
+    // photographs opened.
+    const { conversation, provider, created } = requestWith(["TEXT"]);
+    provider.decide(created.token, "ACCEPTED");
+
+    const gate = evaluateConsentGate(conversation.id);
+    expect(gate.satisfied).toBe(true);
+    expect(gate.consentedDataTypes).toEqual(["TEXT"]);
+    expect(gate.consentedDataTypes).not.toContain("IMAGES");
+  });
+
+  it("drops a content type as soon as consent is withdrawn", () => {
+    const { conversation, provider, created } = requestWith(["TEXT", "IMAGES"]);
+    provider.decide(created.token, "ACCEPTED");
+    expect(evaluateConsentGate(conversation.id).consentedDataTypes).toContain("IMAGES");
+
+    provider.withdraw(created.token);
+    expect(evaluateConsentGate(conversation.id).consentedDataTypes).toEqual([]);
   });
 });

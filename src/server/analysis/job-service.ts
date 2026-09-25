@@ -15,6 +15,10 @@ import { allowedModulesFor, getProduct } from "@/lib/billing/products";
 import { serverConfig } from "@/lib/config";
 import { AppError, asAppError } from "@/lib/errors";
 import type { DeclaredAttachment } from "@/lib/api/schemas";
+import { enrichExcerpts } from "@/lib/ai/media-context";
+import type { AttachmentAnalyser } from "@/lib/ai/claude";
+import { processJobMedia } from "@/server/media/process";
+import type { Excerpt } from "@/lib/ai/schema";
 import { planMedia } from "@/server/repositories/media";
 import {
   planMediaFor,
@@ -327,8 +331,37 @@ export async function runAnalysisJob(options: RunJobOptions): Promise<RunJobResu
   });
 
   try {
+    const payload = input.payload as AnalysisJobInput;
+
+    // 3. Media, before the analysis rather than alongside it.
+    //
+    //    Sequential on purpose: a transcript and a screenshot's text are part of
+    //    what the conversation said, so the analysis has to read them in the
+    //    same pass as the words around them. Running the two concurrently would
+    //    mean analysing a voice note as "a voice note" and then never revisiting
+    //    it. The stage also deletes the uploaded bytes when it finishes.
+    jobs.updateProgress(jobId, "preparing", "Reading attachments…", 5);
+    const mediaOutcome = await processJobMedia({
+      jobId,
+      ownerId,
+      productId: job.productId,
+      textById: textFromExcerpts(payload.excerpts),
+      orderedIds: orderedIdsFromExcerpts(payload.excerpts),
+      // Only what every required participant agreed to. An intersection, so one
+      // person's broad consent cannot authorise reading another's photographs.
+      consented: {
+        images: gate.consentedDataTypes.includes("IMAGES"),
+        audio: gate.consentedDataTypes.includes("AUDIO"),
+      },
+      analyser: asAttachmentAnalyser(service),
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+
     const { result } = await runModularAnalysis({
-      input: input.payload as AnalysisJobInput,
+      input: {
+        ...payload,
+        excerpts: enrichExcerpts(payload.excerpts, mediaOutcome),
+      },
       service,
       ...(options.signal ? { signal: options.signal } : {}),
       onProgress: (event) => {
@@ -415,4 +448,46 @@ export function cancelJob(jobId: string, ownerId: string): AnalysisJobRecord {
   if (!job) throw new AppError("NOT_FOUND");
   if (job.entitlementId) releaseEntitlement(job.entitlementId);
   return jobs.transitionJob(jobId, "CANCELLED");
+}
+
+/* -------------------------------------------------------------------------
+ * Media helpers
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Message text the analysis will read, keyed by id.
+ *
+ * Built from the excerpts rather than the conversation because the excerpts are
+ * what the model sees, and relevance should be judged on the same text.
+ */
+function textFromExcerpts(excerpts: readonly Excerpt[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const excerpt of excerpts) {
+    for (const message of excerpt.messages) out.set(message.id, message.t);
+  }
+  return out;
+}
+
+/** Those ids in conversation order, for reading a message's neighbours. */
+function orderedIdsFromExcerpts(excerpts: readonly Excerpt[]): string[] {
+  const ids: string[] = [];
+  for (const excerpt of excerpts) {
+    for (const message of excerpt.messages) ids.push(message.id);
+  }
+  return ids;
+}
+
+/**
+ * The analysis service, if it can also take attachments.
+ *
+ * `AIAnalysisService` deliberately does not require attachment support - a text
+ * stub should not have to implement image handling to be a valid service - so
+ * this narrows at runtime instead. A service without it means no image is
+ * described, which the gateway already treats as a reason to withhold.
+ */
+function asAttachmentAnalyser(service: AIAnalysisService): AttachmentAnalyser | null {
+  const candidate = service as Partial<AttachmentAnalyser>;
+  return typeof candidate.runAttachmentTask === "function"
+    ? (service as unknown as AttachmentAnalyser)
+    : null;
 }

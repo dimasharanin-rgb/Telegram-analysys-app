@@ -10,7 +10,7 @@
  * request of their own.
  */
 
-import type { ConsentStatus } from "@/lib/consent/state";
+import type { ConsentDataType, ConsentStatus } from "@/lib/consent/state";
 import { listConsentForConversation } from "@/server/repositories/consent";
 import { listParticipants } from "@/server/repositories/conversations";
 import type { ParticipantRecord } from "@/server/repositories/conversations";
@@ -38,6 +38,15 @@ export type GateBlocker =
 
 export interface ConsentGateResult {
   requirements: ConsentRequirement[];
+  /**
+   * Content types every required participant actually agreed to.
+   *
+   * The intersection, not the union: if one person's consent covers text and
+   * images and another's covers text alone, only text may be analysed. §33 -
+   * consent to have words read is not consent to have photographs opened, and
+   * one participant cannot agree on another's behalf.
+   */
+  consentedDataTypes: ConsentDataType[];
   satisfied: boolean;
   /** Participants still standing between the job and processing. */
   blocking: { participantId: string; displayName: string; reason: GateBlocker }[];
@@ -130,6 +139,19 @@ export function evaluateConsentGate(conversationId: string): ConsentGateResult {
     },
   );
 
+  // Data types are intersected across the participants whose consent was
+  // actually needed. The uploader is excluded here for the same reason they are
+  // not `required`: they agreed at import, and the scope they agreed to is the
+  // product's, not a separate consent record.
+  const grantedByRequired = requirements
+    .filter((requirement) => requirement.required && requirement.satisfied)
+    .map((requirement) => {
+      const record = requests.find((entry) => entry.id === requirement.consentRequestId);
+      return record?.dataTypes ?? [];
+    });
+
+  const consentedDataTypes = intersectDataTypes(grantedByRequired);
+
   const blocking = requirements
     .filter((requirement) => requirement.required && !requirement.satisfied)
     .map((requirement) => ({
@@ -140,8 +162,25 @@ export function evaluateConsentGate(conversationId: string): ConsentGateResult {
 
   return {
     requirements,
+    consentedDataTypes,
     satisfied: blocking.length === 0,
     blocking,
     declined: blocking.some((entry) => entry.reason === "DECLINED"),
   };
+}
+
+/**
+ * What every grant has in common.
+ *
+ * No grants at all means nothing is consented, not everything: an analysis with
+ * no required participants is the uploader's own monologue, and there is no
+ * media consent to infer from silence.
+ */
+function intersectDataTypes(
+  grants: readonly ConsentDataType[][],
+): ConsentDataType[] {
+  if (grants.length === 0) return [];
+
+  const first = grants[0]!;
+  return first.filter((type) => grants.every((grant) => grant.includes(type)));
 }

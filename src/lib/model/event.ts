@@ -257,25 +257,41 @@ export function toConversationEvents(
  */
 export function renderEventContent(event: ConversationEvent): string {
   const parts: string[] = [];
-
   if (event.text.trim().length > 0) parts.push(event.text.trim());
+  parts.push(...renderMediaParts(event.type === EventType.AUDIO, event.media, event.transcript));
+  return parts.join(" ").trim();
+}
 
-  if (event.transcript?.status === TranscriptionStatus.COMPLETED) {
-    const spoken = event.transcript.text.trim();
+/**
+ * The media half of an event, as the phrases a model reads.
+ *
+ * Shared with the excerpt builder so that a transcript worded one way in a
+ * single-message render is not worded another way in a conversation excerpt.
+ * One set of phrasings, one place to change them.
+ */
+export function renderMediaParts(
+  isAudio: boolean,
+  media: readonly EventMedia[],
+  transcript: Transcript | null,
+): string[] {
+  const parts: string[] = [];
+
+  if (transcript?.status === TranscriptionStatus.COMPLETED) {
+    const spoken = transcript.text.trim();
     if (spoken.length > 0) parts.push(`(voice message, transcribed) ${spoken}`);
-  } else if (event.type === EventType.AUDIO) {
-    const seconds = event.media[0]?.durationSeconds;
+  } else if (isAudio) {
+    const seconds = media[0]?.durationSeconds;
     const length = seconds !== null && seconds !== undefined ? `, ${Math.round(seconds)}s` : "";
     parts.push(`(voice message${length}, no transcript available)`);
   }
 
-  for (const attachment of event.media) {
+  for (const attachment of media) {
     if (attachment.kind === MessageType.AUDIO) continue; // handled above
     const rendered = renderAttachment(attachment);
     if (rendered !== null) parts.push(rendered);
   }
 
-  return parts.join(" ").trim();
+  return parts;
 }
 
 function renderAttachment(attachment: EventMedia): string | null {
