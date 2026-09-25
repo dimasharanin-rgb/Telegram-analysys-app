@@ -34,6 +34,7 @@ import {
   readMessageIdsFrom,
   scopeFromContentTypes,
 } from "@/server/media/plan";
+import type { MediaUsage } from "@/lib/media/policy";
 import { log } from "@/lib/logger";
 import {
   analysisJobInputSchema,
@@ -87,6 +88,8 @@ export interface CreatedJob {
    * nothing else - an export's remaining photographs never leave the machine.
    */
   mediaRequests: { reference: string }[];
+  /** What processing those files is estimated to cost. Nothing is billed from it. */
+  mediaUsage: MediaUsage;
 }
 
 export function createAnalysisJob(request: CreateJobRequest): CreatedJob {
@@ -171,6 +174,7 @@ export function createAnalysisJob(request: CreateJobRequest): CreatedJob {
     batchModules: batchModules(modules).length,
     mediaDeclared: request.media?.length ?? 0,
     mediaWanted: plan.wanted.length,
+    mediaCostMicros: plan.usage.estimatedCostMicros,
     mediaSkippedOutOfScope: plan.skipped.outOfScope,
     mediaSkippedOutsideWindow: plan.skipped.outsideReadWindow,
   });
@@ -179,6 +183,7 @@ export function createAnalysisJob(request: CreateJobRequest): CreatedJob {
     job: settleStatus(job.id, request.ownerId),
     gate,
     mediaRequests: plan.wanted.map((asset) => ({ reference: asset.reference })),
+    mediaUsage: plan.usage,
   };
 }
 

@@ -23,7 +23,7 @@ export const POST = withOwner(
     const parsed = createJobSchema.safeParse(await readJson(request));
     if (!parsed.success) throw new AppError("INVALID_REQUEST");
 
-    const { job, gate, mediaRequests } = createAnalysisJob({
+    const { job, gate, mediaRequests, mediaUsage } = createAnalysisJob({
       ownerId,
       conversationId: parsed.data.conversationId,
       productId: parsed.data.productId,
@@ -38,6 +38,7 @@ export const POST = withOwner(
         gate,
         entitlement: checkEntitlement(ownerId, job.productId),
         mediaRequests,
+        mediaUsage,
       },
       { status: 201 },
     );

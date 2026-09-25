@@ -21,10 +21,12 @@ import type { DeclaredAttachment } from "@/lib/api/schemas";
 import { MessageType, type MediaAttachment } from "@/lib/model/message";
 import {
   categoryOf,
+  estimateUsage,
   mediaLimitsFor,
   validateAttachment,
   type MediaCategory,
   type MediaLimits,
+  type MediaUsage,
 } from "@/lib/media/policy";
 import type { PlannedAsset } from "@/server/repositories/media";
 
@@ -77,6 +79,13 @@ function toAttachment(declared: DeclaredAttachment): MediaAttachment {
 
 export interface MediaPlan {
   wanted: PlannedAsset[];
+  /**
+   * What processing this plan would cost, before any of it runs.
+   *
+   * Recorded with the job so a media analysis has a number attached to it the
+   * same way a token spend does. Nothing is billed from it.
+   */
+  usage: MediaUsage;
   /** Counted, not listed: a reason per file would be noise at this stage. */
   skipped: {
     outOfScope: number;
@@ -111,6 +120,9 @@ export function planMediaFor(options: PlanOptions): MediaPlan {
   let images = 0;
   let audioSeconds = 0;
   const seen = new Set<string>();
+  // Durations are needed again for the cost estimate, and the declared list is
+  // the only place they exist.
+  const durationByReference = new Map<string, number>();
 
   for (const declared of options.declared) {
     if (seen.has(declared.reference)) continue;
@@ -149,6 +161,9 @@ export function planMediaFor(options: PlanOptions): MediaPlan {
     }
 
     seen.add(declared.reference);
+    if (declared.durationSeconds !== undefined) {
+      durationByReference.set(declared.reference, declared.durationSeconds);
+    }
     wanted.push({
       messageId: declared.messageId,
       reference: declared.reference,
@@ -158,7 +173,37 @@ export function planMediaFor(options: PlanOptions): MediaPlan {
     });
   }
 
-  return { wanted, skipped };
+  return {
+    wanted,
+    usage: estimateUsage(
+      wanted.map((asset) => ({
+        messageId: asset.messageId,
+        category: asset.category,
+        attachment: {
+          kind: kindForCategory(asset.category),
+          ...(durationByReference.get(asset.reference) !== undefined
+            ? { durationSeconds: durationByReference.get(asset.reference)! }
+            : {}),
+        },
+      })),
+    ),
+    skipped,
+  };
+}
+
+/** The attachment kind a category implies, for the cost estimator. */
+function kindForCategory(category: MediaCategory): MediaAttachment["kind"] {
+  switch (category) {
+    case "image":
+      return MessageType.IMAGE;
+    case "voice":
+    case "audio":
+      return MessageType.AUDIO;
+    case "document":
+      return MessageType.FILE;
+    default:
+      return MessageType.UNKNOWN;
+  }
 }
 
 /** A best guess, used only when the export omitted the type. */

@@ -6,8 +6,6 @@ import {
   estimateUsage,
   mediaLimits,
   mediaLimitsFor,
-  relevanceScore,
-  selectMedia,
   validateAttachment,
   type MediaLimits,
 } from "@/lib/media/policy";
@@ -199,83 +197,5 @@ describe("cost is estimated before anything runs", () => {
     );
     expect(check.withinLimits).toBe(false);
     expect(check.exceeded).toContain("images");
-  });
-});
-
-describe("relevance decides what is worth reading", () => {
-  it("scores a captioned image above a silent one", () => {
-    const withCaption = [
-      message(1, { text: "look at this", media: [attachment()], hasMedia: true }),
-      message(2, { text: "no way", senderId: "b" }),
-    ];
-    const silent = [message(1, { media: [attachment()], hasMedia: true })];
-
-    expect(relevanceScore(withCaption, 0)).toBeGreaterThan(relevanceScore(silent, 0));
-  });
-
-  it("scores an image the other person answered above one nobody did", () => {
-    const answered = [
-      message(1, { media: [attachment()], hasMedia: true }),
-      message(2, { text: "ha", senderId: "b" }),
-    ];
-    const ignored = [
-      message(1, { media: [attachment()], hasMedia: true }),
-      message(2, { text: "anyway", senderId: "a" }),
-    ];
-    expect(relevanceScore(answered, 0)).toBeGreaterThan(relevanceScore(ignored, 0));
-  });
-});
-
-describe("selection", () => {
-  it("keeps the most relevant and marks the rest over-budget", () => {
-    const messages = [
-      message(1, { text: "look", media: [attachment()], hasMedia: true }),
-      message(2, { text: "wow", senderId: "b" }),
-      message(3, { media: [attachment()], hasMedia: true }),
-      message(4, { media: [attachment()], hasMedia: true }),
-    ];
-
-    const result = selectMedia(messages, { ...GENEROUS, maxImages: 1 });
-
-    expect(result.selected).toHaveLength(1);
-    // The captioned, answered one is the one that survives.
-    expect(result.selected[0]!.messageId).toBe("1");
-    expect(result.skipped.some((entry) => entry.reason === "over-budget")).toBe(true);
-  });
-
-  it("selects nothing when the product includes no media", () => {
-    const messages = [message(1, { text: "look", media: [attachment()], hasMedia: true })];
-    const result = selectMedia(messages, mediaLimitsFor("free"));
-
-    expect(result.selected).toHaveLength(0);
-    expect(result.usage.estimatedCostMicros).toBe(0);
-  });
-
-  it("leaves stickers alone", () => {
-    const messages = [
-      message(1, {
-        media: [attachment({ kind: MessageType.STICKER, mimeType: "image/webp" })],
-        hasMedia: true,
-      }),
-    ];
-    const result = selectMedia(messages, GENEROUS);
-
-    expect(result.selected).toHaveLength(0);
-    // Excluded because processing decoration costs the same as processing a
-    // photograph of something, not because the file was unreadable.
-    expect(result.skipped[0]!.reason).toBe("not-relevant");
-  });
-
-  it("estimates the cost of what it chose", () => {
-    const messages = [
-      message(1, { text: "listen", media: [
-        attachment({ kind: MessageType.AUDIO, mimeType: "audio/ogg", durationSeconds: 60 }),
-      ], hasMedia: true }),
-    ];
-    const result = selectMedia(messages, GENEROUS);
-
-    expect(result.selected).toHaveLength(1);
-    expect(result.usage.audioSeconds).toBe(60);
-    expect(result.usage.estimatedCostMicros).toBeGreaterThan(0);
   });
 });

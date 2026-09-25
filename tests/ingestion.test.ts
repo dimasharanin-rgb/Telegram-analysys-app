@@ -383,3 +383,115 @@ describe("declaring what exists", () => {
     });
   });
 });
+
+describe("documents are read, and cost is estimated before anything runs", () => {
+  it("asks for a PDF when documents are in scope", () => {
+    const plan = planMediaFor({
+      declared: [
+        declared({
+          reference: "files/agreement.pdf",
+          kind: "FILE",
+          mimeType: "application/pdf",
+        }),
+      ],
+      readMessageIds: READ,
+      productId: "multimodal",
+      scope: FULL_SCOPE,
+    });
+    expect(plan.wanted).toHaveLength(1);
+    expect(plan.wanted[0]!.category).toBe("document");
+  });
+
+  it("refuses a document that is not a PDF", () => {
+    const plan = planMediaFor({
+      declared: [
+        declared({
+          reference: "files/notes.docx",
+          kind: "FILE",
+          mimeType:
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        }),
+      ],
+      readMessageIds: READ,
+      productId: "multimodal",
+      scope: FULL_SCOPE,
+    });
+    expect(plan.wanted).toHaveLength(0);
+    expect(plan.skipped.invalid).toBe(1);
+  });
+
+  it("counts a document against the image allowance, since both are files read", () => {
+    const plan = planMediaFor({
+      declared: [
+        declared({ reference: "photos/a.jpg" }),
+        declared({ reference: "files/b.pdf", kind: "FILE", mimeType: "application/pdf" }),
+        declared({ reference: "photos/c.jpg" }),
+      ],
+      readMessageIds: READ,
+      productId: "multimodal",
+      scope: FULL_SCOPE,
+      limits: { ...mediaLimits(), maxImages: 2 },
+    });
+    expect(plan.wanted).toHaveLength(2);
+    expect(plan.skipped.overLimit).toBe(1);
+  });
+
+  it("estimates nothing when it wants nothing", () => {
+    const plan = planMediaFor({
+      declared: [],
+      readMessageIds: READ,
+      productId: "multimodal",
+      scope: FULL_SCOPE,
+    });
+    expect(plan.usage.estimatedCostMicros).toBe(0);
+    expect(plan.usage.imagesProcessed).toBe(0);
+  });
+
+  it("estimates a cost for what it does want", () => {
+    const plan = planMediaFor({
+      declared: [declared(), declared({ reference: "photos/b.jpg" })],
+      readMessageIds: READ,
+      productId: "multimodal",
+      scope: FULL_SCOPE,
+    });
+    expect(plan.usage.imagesProcessed).toBe(2);
+    expect(plan.usage.estimatedCostMicros).toBeGreaterThan(0);
+  });
+
+  it("prices audio by its duration rather than per file", () => {
+    const short = planMediaFor({
+      declared: [
+        declared({ reference: "v/a.ogg", kind: "AUDIO", mimeType: "audio/ogg", durationSeconds: 10 }),
+      ],
+      readMessageIds: READ,
+      productId: "multimodal",
+      scope: FULL_SCOPE,
+    });
+    const long = planMediaFor({
+      declared: [
+        declared({ reference: "v/a.ogg", kind: "AUDIO", mimeType: "audio/ogg", durationSeconds: 600 }),
+      ],
+      readMessageIds: READ,
+      productId: "multimodal",
+      scope: FULL_SCOPE,
+    });
+
+    expect(long.usage.audioSeconds).toBe(600);
+    expect(long.usage.estimatedCostMicros).toBeGreaterThan(
+      short.usage.estimatedCostMicros,
+    );
+  });
+
+  it("never estimates a video cost, because none is ever planned", () => {
+    const plan = planMediaFor({
+      declared: [
+        declared({ reference: "v/v.mp4", kind: "VIDEO", mimeType: "video/mp4", durationSeconds: 300 }),
+      ],
+      readMessageIds: READ,
+      productId: "multimodal",
+      scope: FULL_SCOPE,
+    });
+    expect(plan.usage.videoSeconds).toBe(0);
+    expect(plan.usage.estimatedCostMicros).toBe(0);
+  });
+});
