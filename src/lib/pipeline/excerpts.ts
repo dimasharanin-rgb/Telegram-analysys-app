@@ -59,14 +59,60 @@ interface ScoredSegment {
   score: number;
 }
 
-/** Rewards real dialogue: turn-taking and questions over long monologues. */
+/**
+ * What the conversation looks like as a whole, for the signals that are only
+ * meaningful in comparison.
+ *
+ * "An unusually busy exchange" has no meaning for one segment in isolation -
+ * it needs to know what a typical segment looks like in this particular chat.
+ */
+interface SegmentContext {
+  /** When the conversation starts and ends, for the recency weighting. */
+  firstEpochMs: number;
+  lastEpochMs: number;
+  /** Median messages per segment, which defines what "unusual" means here. */
+  typicalLength: number;
+}
+
+export function buildSegmentContext(
+  messages: readonly NormalizedMessage[],
+  segments: readonly ConversationSegment[],
+): SegmentContext {
+  const lengths = segments
+    .map((segment) => segment.endIndex - segment.startIndex + 1)
+    .sort((a, b) => a - b);
+  const middle = Math.floor(lengths.length / 2);
+
+  return {
+    firstEpochMs: messages[0]?.epochMs ?? 0,
+    lastEpochMs: messages[messages.length - 1]?.epochMs ?? 0,
+    typicalLength: lengths.length === 0 ? 1 : (lengths[middle] ?? 1),
+  };
+}
+
+/**
+ * How much this exchange is worth reading.
+ *
+ * Dialogue is the base: turn-taking and questions, because a back-and-forth
+ * says more about two people than a monologue of the same length. On top of
+ * that sit the four signals §30 asks for when a conversation is too large to
+ * read whole - the ones that decide which parts of a decade-long chat are worth
+ * the budget.
+ *
+ * All four are bonuses rather than multipliers, so no single signal can crowd
+ * out ordinary conversation entirely. A chat that is nothing but photographs
+ * should not produce an analysis made only of photograph captions.
+ */
 function scoreSegment(
   segment: ConversationSegment,
   messages: readonly NormalizedMessage[],
+  context: SegmentContext,
 ): number {
   let turns = 0;
   let questions = 0;
   let textMessages = 0;
+  let longMessages = 0;
+  let mediaMessages = 0;
   let previousSender: string | null = null;
 
   for (let i = segment.startIndex; i <= segment.endIndex; i += 1) {
@@ -75,10 +121,53 @@ function scoreSegment(
     previousSender = message.senderId;
     if (message.text.length > 0) textMessages += 1;
     if (message.text.includes("?")) questions += 1;
+    // A message someone took time over is more likely to carry the thing they
+    // actually wanted to say.
+    if (message.text.length >= LONG_MESSAGE_CHARS) longMessages += 1;
+    if (message.hasMedia) mediaMessages += 1;
   }
 
   if (segment.participantIds.length < 2) return 0;
-  return turns * 3 + Math.min(textMessages, 80) + questions * 2;
+
+  const base = turns * 3 + Math.min(textMessages, 80) + questions * 2;
+
+  const length = segment.endIndex - segment.startIndex + 1;
+  // A burst several times the usual length is where something happened.
+  const unusual = length >= context.typicalLength * UNUSUAL_LENGTH_FACTOR ? 12 : 0;
+
+  return (
+    base +
+    Math.min(longMessages, 10) * 2 +
+    Math.min(mediaMessages, 8) * 2 +
+    unusual +
+    recencyBonus(segment, context)
+  );
+}
+
+/** Messages at or above this length are treated as considered rather than tossed off. */
+const LONG_MESSAGE_CHARS = 280;
+
+/** How many times the typical segment length counts as a burst. */
+const UNUSUAL_LENGTH_FACTOR = 3;
+
+/** The most a segment can gain for being recent. */
+const MAX_RECENCY_BONUS = 15;
+
+/**
+ * Weights the recent end of the conversation.
+ *
+ * Bounded and linear rather than steep: recent matters most when someone is
+ * asking about a relationship now, but an analysis that only read the last
+ * month cannot say what changed, and "what changed" is most of the value.
+ */
+function recencyBonus(
+  segment: ConversationSegment,
+  context: SegmentContext,
+): number {
+  const span = context.lastEpochMs - context.firstEpochMs;
+  if (span <= 0) return 0;
+  const position = (segment.startEpochMs - context.firstEpochMs) / span;
+  return Math.round(Math.min(1, Math.max(0, position)) * MAX_RECENCY_BONUS);
 }
 
 function truncate(text: string, max: number): string {
@@ -138,8 +227,9 @@ export function selectExcerpts(
   const maxCharsPerMessage = options.maxCharsPerMessage ?? 280;
 
   // Segments with at least one exchange between two people.
+  const context = buildSegmentContext(messages, segments);
   const eligible: ScoredSegment[] = segments
-    .map((segment) => ({ segment, score: scoreSegment(segment, messages) }))
+    .map((segment) => ({ segment, score: scoreSegment(segment, messages, context) }))
     .filter((entry) => entry.score > 0);
 
   const pool = eligible.length > 0

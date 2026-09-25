@@ -47,9 +47,9 @@ function uniform(count: number, textLength: number): NormalizedMessage[] {
 describe("size tiers are configuration", () => {
   it("offers the documented ladder", () => {
     expect(sizeTiers().map((tier) => [tier.id, tier.maxCharacters])).toEqual([
-      ["standard", 30_000],
-      ["extended", 60_000],
-      ["large", 120_000],
+      ["standard", 60_000],
+      ["extended", 150_000],
+      ["large", 300_000],
       ["full", null],
     ]);
   });
@@ -61,8 +61,8 @@ describe("size tiers are configuration", () => {
   });
 
   it("gives a paid product more reading than the free one", () => {
-    expect(sizeTierFor("free").maxCharacters).toBe(30_000);
-    expect(sizeTierFor("deep-text").maxCharacters).toBe(60_000);
+    expect(sizeTierFor("free").maxCharacters).toBe(60_000);
+    expect(sizeTierFor("deep-text").maxCharacters).toBe(150_000);
     // A product nobody mapped gets the default, not the largest.
     expect(sizeTierFor("invented-later").id).toBe("standard");
   });

@@ -10,6 +10,12 @@
  * actually charged for - message counts vary wildly in cost, and a limit
  * expressed in messages would mean something different for every chat.
  *
+ * A conversation past its tier's budget is not refused and not truncated
+ * mid-sentence. It is read as a representative subset - whole exchanges chosen
+ * for dialogue, recency, length, media and unusual activity, spread across the
+ * whole period - and the report says so. The statistics are unaffected: they
+ * are exact arithmetic over every message, computed locally, and cost nothing.
+ *
  * Every figure is configurable. Nothing here is hard-coded anywhere else.
  */
 
@@ -33,19 +39,19 @@ export function sizeTiers(): SizeTier[] {
     {
       id: "standard",
       name: "Standard",
-      maxCharacters: budget(process.env.NEXT_PUBLIC_SIZE_STANDARD_CHARS, 30_000),
+      maxCharacters: budget(process.env.NEXT_PUBLIC_SIZE_STANDARD_CHARS, 60_000),
       description: "Enough for most conversations, or a representative slice of a long one.",
     },
     {
       id: "extended",
       name: "Extended",
-      maxCharacters: budget(process.env.NEXT_PUBLIC_SIZE_EXTENDED_CHARS, 60_000),
-      description: "Twice the reading, for conversations that run to years.",
+      maxCharacters: budget(process.env.NEXT_PUBLIC_SIZE_EXTENDED_CHARS, 150_000),
+      description: "Two and a half times the reading, for conversations that run to years.",
     },
     {
       id: "large",
       name: "Large",
-      maxCharacters: budget(process.env.NEXT_PUBLIC_SIZE_LARGE_CHARS, 120_000),
+      maxCharacters: budget(process.env.NEXT_PUBLIC_SIZE_LARGE_CHARS, 300_000),
       description: "For long histories where the early period matters as much as the recent one.",
     },
     {
