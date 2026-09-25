@@ -28,7 +28,6 @@ function attachment(over: Partial<MediaAttachment> = {}): MediaAttachment {
     mimeType: "image/jpeg",
     reference: "photos/photo_1.jpg",
     sizeBytes: 1024,
-    analysis: null,
     ...over,
   };
 }

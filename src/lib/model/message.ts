@@ -2,14 +2,18 @@
  * The internal conversation model.
  *
  * This is deliberately source-agnostic: the Telegram parser is one producer,
- * and the shape is already wide enough to describe image, audio, video,
- * sticker and reaction content so that adding media analysis later is a new
- * processor rather than a new data model.
+ * and the shape is wide enough to describe image, audio, video, sticker and
+ * reaction content. It describes what was sent; `model/event.ts` describes
+ * what was then learned about it.
  */
 
 /**
- * What a message primarily *is*. Media kinds are recognised and preserved in
- * the MVP even though nothing analyses their contents yet.
+ * What a message primarily *is*.
+ *
+ * Wider than the analysis-facing `EventType`, because statistics need the
+ * distinctions the analysis does not: a sticker and a video are both
+ * unanalysable, but counting them separately is free and tells the owner
+ * something.
  */
 export const MessageType = {
   TEXT: "TEXT",
@@ -52,9 +56,13 @@ export const MEDIA_TYPES: ReadonlySet<MessageType> = new Set([
 ]);
 
 /**
- * A media attachment. `analysis` is always null in the MVP; a future
- * ImageProcessor / AudioProcessor / VideoProcessor fills it in without any
- * change to the surrounding model.
+ * A media attachment, exactly as the export described it.
+ *
+ * This is parser output and stays that way: what the export said, nothing
+ * inferred. Everything learned afterwards - classification, description,
+ * transcript, why something was not read - lives on `EventMedia` in
+ * `model/event.ts`, so a parsed conversation can be re-analysed under
+ * different rules without being re-parsed.
  */
 export interface MediaAttachment {
   kind: MessageType;
@@ -66,15 +74,6 @@ export interface MediaAttachment {
   reference?: string;
   /** Sticker emoji, poll question, contact name - a short non-sensitive label. */
   label?: string;
-  analysis: MediaAnalysis | null;
-}
-
-/** Output slot reserved for future media processors. */
-export interface MediaAnalysis {
-  processor: string;
-  summary: string;
-  confidence: "high" | "medium" | "low";
-  producedAt: string;
 }
 
 /** An emoji reaction attached to a message. */
@@ -170,6 +169,3 @@ export interface Conversation {
   availableChats: ChatSummary[];
 }
 
-/** Placeholder text used wherever a media message has to be represented. */
-export const MEDIA_PLACEHOLDER =
-  "This message contains media that is not analyzed in the MVP.";

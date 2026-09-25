@@ -188,7 +188,6 @@ function classify(message: RawRecord): { type: MessageType; media: MediaAttachme
         ? { sizeBytes: message.file_size }
         : {}),
       ...(str(message.sticker_emoji) ? { label: str(message.sticker_emoji)! } : {}),
-      analysis: null,
     });
   } else if (isMediaReference(message.photo)) {
     media.push({
@@ -200,7 +199,6 @@ function classify(message: RawRecord): { type: MessageType; media: MediaAttachme
       ...(typeof message.file_size === "number" && message.file_size >= 0
         ? { sizeBytes: message.file_size }
         : {}),
-      analysis: null,
     });
   } else if (isMediaReference(message.file)) {
     media.push({
@@ -211,7 +209,6 @@ function classify(message: RawRecord): { type: MessageType; media: MediaAttachme
         ? { sizeBytes: message.file_size }
         : {}),
       ...(str(message.file_name) ? { label: str(message.file_name)! } : {}),
-      analysis: null,
     });
   }
 
@@ -220,13 +217,13 @@ function classify(message: RawRecord): { type: MessageType; media: MediaAttachme
   if (isRecord(message.location_information)) {
     return {
       type: MessageType.LOCATION,
-      media: [{ kind: MessageType.LOCATION, analysis: null }],
+      media: [{ kind: MessageType.LOCATION }],
     };
   }
   if (isRecord(message.contact_information) || isMediaReference(message.contact_vcard)) {
     return {
       type: MessageType.CONTACT,
-      media: [{ kind: MessageType.CONTACT, analysis: null }],
+      media: [{ kind: MessageType.CONTACT }],
     };
   }
   if (isRecord(message.poll)) {
@@ -234,7 +231,7 @@ function classify(message: RawRecord): { type: MessageType; media: MediaAttachme
     return {
       type: MessageType.POLL,
       media: [
-        { kind: MessageType.POLL, ...(question ? { label: question } : {}), analysis: null },
+        { kind: MessageType.POLL, ...(question ? { label: question } : {}) },
       ],
     };
   }

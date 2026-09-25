@@ -176,7 +176,9 @@ describe("message classification", () => {
 
     expect(voice?.type).toBe(MessageType.AUDIO);
     expect(voice?.media[0]?.durationSeconds).toBe(9);
-    expect(voice?.media[0]?.analysis).toBeNull();
+    // The parser records what the export said and nothing more; everything
+    // learned later lives on the conversation event, not the attachment.
+    expect(voice?.media[0]?.kind).toBe(MessageType.AUDIO);
 
     expect(reply?.replyTo).toBe("1");
     expect(reply?.edited).toBe(true);
