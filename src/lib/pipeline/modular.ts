@@ -195,10 +195,13 @@ export async function runModularAnalysis(
       emit(MODULE_STAGE[moduleId] ?? "synthesis", step);
       return service.runModule({
         moduleId,
+        // Every analysis module id is also a routing task, so the module
+        // decides its own tier through the routing table rather than through
+        // an effort value passed down from here.
+        aiTask: moduleId,
         systemContext,
         task,
         schema,
-        effort: config.anthropic.effort,
         ...(signal ? { signal } : {}),
       }) as Promise<T>;
     };

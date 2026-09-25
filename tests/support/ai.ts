@@ -1,3 +1,4 @@
+import type { AiTask } from "@/lib/ai/routing";
 import type { Analysis, ChunkFindings, Excerpt } from "@/lib/ai/schema";
 import type {
   AIAnalysisService,
@@ -99,13 +100,23 @@ export class StubAiService implements AIAnalysisService {
     return { calls: this.moduleCalls.length + this.baseCalls, inputTokens: 0, outputTokens: 0 };
   }
 
-  private emit(module: string): void {
+  private emit(module: string, task: AiTask = "SYNTHESIS"): void {
+    const cachedInputTokens = module === "base" ? 0 : 900;
     this.listener?.({
       module,
+      task,
+      tier: "standard",
+      provider: this.provider,
       model: this.model,
       inputTokens: 1_000,
       outputTokens: 500,
-      cachedInputTokens: module === "base" ? 0 : 900,
+      cachedInputTokens,
+      costMicros: 12_000,
+      latencyMs: 1_234,
+      retries: 0,
+      cached: cachedInputTokens > 0,
+      escalated: false,
+      ok: true,
     });
   }
 }

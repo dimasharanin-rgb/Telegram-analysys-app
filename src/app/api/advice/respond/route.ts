@@ -83,6 +83,7 @@ export const POST = withOwner(
     try {
       advice = await service.runModule({
         moduleId: "RESPONSE_ADVICE",
+        aiTask: "RESPONSE_ADVICE",
         systemContext: responseAdviceSystemPrompt(),
         task: [
           `You are writing options for ${speaker}, who sends the next message.`,

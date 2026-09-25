@@ -17,6 +17,12 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { z } from "zod";
 
 import { serverConfig, type EffortLevel } from "@/lib/config";
+import {
+  costMicrosForTier,
+  routeTask,
+  type AiTask,
+  type ModelTier,
+} from "./routing";
 import { AppError } from "@/lib/errors";
 import { log } from "@/lib/logger";
 import {
@@ -52,14 +58,27 @@ interface CallOptions<T> {
   system: string | { text: string; cache: boolean }[];
   userMessage: string;
   schema: z.ZodType<T>;
-  effort: EffortLevel;
+  /** Decides which model runs this call. Never a model id at a call site. */
+  task: AiTask;
+  /** Raises the task above its default tier, for escalation. */
+  tier?: ModelTier;
+  /**
+   * Overrides the tier's effort. Used only where a task genuinely needs more
+   * thinking than its tier-mates; routing still chooses the model.
+   */
+  effort?: EffortLevel;
   maxOutputTokens?: number;
   signal?: AbortSignal;
+  /** Free-form label for logs and per-module accounting, e.g. `chunk_3`. */
   stage: string;
 }
 
 export class ClaudeAnalysisService implements AIAnalysisService {
   readonly provider = "anthropic";
+  /**
+   * The standard-tier model. Reported as "the" model for a job, but no call is
+   * obliged to use it - `routeTask` picks per call.
+   */
   readonly model: string;
 
   private readonly client: Anthropic;
@@ -73,7 +92,7 @@ export class ClaudeAnalysisService implements AIAnalysisService {
         detail: "ANTHROPIC_API_KEY is not set",
       });
     }
-    this.model = config.anthropic.model;
+    this.model = config.anthropic.models.standard;
     this.client =
       client ??
       new Anthropic({
@@ -108,7 +127,9 @@ export class ClaudeAnalysisService implements AIAnalysisService {
       userMessage:
         "Produce the analysis for the task described above, using the statistics and excerpts already provided.",
       schema: options.schema,
-      effort: options.effort ?? serverConfig().anthropic.effort,
+      task: options.aiTask,
+      ...(options.tier ? { tier: options.tier } : {}),
+      ...(options.effort ? { effort: options.effort } : {}),
       ...(options.maxOutputTokens !== undefined
         ? { maxOutputTokens: options.maxOutputTokens }
         : {}),
@@ -129,7 +150,7 @@ export class ClaudeAnalysisService implements AIAnalysisService {
         context.participants,
       ),
       schema: analysisSchema,
-      effort: serverConfig().anthropic.synthesisEffort,
+      task: "SYNTHESIS",
       ...(context.signal ? { signal: context.signal } : {}),
       stage: "single_pass",
     });
@@ -148,7 +169,10 @@ export class ClaudeAnalysisService implements AIAnalysisService {
         context.chunkCount,
       ),
       schema: chunkFindingsSchema,
-      effort: serverConfig().anthropic.effort,
+      // The map phase reads one slice and reports what is in it. That is
+      // extraction, not interpretation, so it runs on the cheap tier and the
+      // synthesis below is what actually reasons over the results.
+      task: "CHUNK_SUMMARY",
       ...(context.signal ? { signal: context.signal } : {}),
       stage: `chunk_${context.chunkIndex + 1}`,
     });
@@ -166,7 +190,7 @@ export class ClaudeAnalysisService implements AIAnalysisService {
         context.participants,
       ),
       schema: analysisSchema,
-      effort: serverConfig().anthropic.synthesisEffort,
+      task: "SYNTHESIS",
       ...(context.signal ? { signal: context.signal } : {}),
       stage: "synthesis",
     });
@@ -199,6 +223,9 @@ export class ClaudeAnalysisService implements AIAnalysisService {
     previousProblem: string | null,
   ): Promise<{ ok: true; value: T } | { ok: false; problem: string }> {
     const config = serverConfig();
+    const route = routeTask(options.task, options.tier);
+    const effort = options.effort ?? route.effort;
+    const startedAt = Date.now();
 
     const userContent = previousProblem
       ? `${options.userMessage}\n\n${repairInstruction(previousProblem)}`
@@ -208,7 +235,7 @@ export class ClaudeAnalysisService implements AIAnalysisService {
     try {
       response = await this.client.messages.parse(
         {
-          model: this.model,
+          model: route.model,
           max_tokens: options.maxOutputTokens ?? config.anthropic.maxOutputTokens,
           system:
             typeof options.system === "string"
@@ -222,7 +249,7 @@ export class ClaudeAnalysisService implements AIAnalysisService {
                 })),
           thinking: { type: "adaptive", display: "omitted" },
           output_config: {
-            effort: options.effort,
+            effort,
             format: zodOutputFormat(options.schema),
           },
           messages: [{ role: "user", content: userContent }],
@@ -254,19 +281,37 @@ export class ClaudeAnalysisService implements AIAnalysisService {
 
     this.usageListener?.({
       module: options.stage,
-      model: this.model,
+      task: options.task,
+      tier: route.tier,
+      provider: this.provider,
+      model: route.model,
       inputTokens,
       outputTokens,
       cachedInputTokens,
+      costMicros: costMicrosForTier(route.tier, {
+        inputTokens,
+        outputTokens,
+        cachedInputTokens,
+      }),
+      latencyMs: Date.now() - startedAt,
+      // A second attempt only happens after a schema violation, so a repair
+      // call is exactly the case where this is 1.
+      retries: previousProblem === null ? 0 : 1,
+      cached: cachedInputTokens > 0,
+      escalated: route.escalated,
+      ok: response.stop_reason !== "refusal",
     });
 
     log.debug("ai.call", {
       stage: options.stage,
-      model: this.model,
-      effort: options.effort,
+      task: options.task,
+      tier: route.tier,
+      model: route.model,
+      effort,
       inputTokens,
       outputTokens,
       cachedInputTokens,
+      latencyMs: Date.now() - startedAt,
       stopReason: response.stop_reason ?? "unknown",
     });
 

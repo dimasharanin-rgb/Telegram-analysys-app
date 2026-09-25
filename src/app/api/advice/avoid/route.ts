@@ -81,6 +81,7 @@ export const POST = withOwner(
     try {
       findings = await service.runModule({
         moduleId: "AVOIDANCE_PATTERNS",
+        aiTask: "AVOIDANCE_PATTERNS",
         systemContext: avoidanceSystemPrompt(),
         task: [
           `Look at the messages sent by ${speaker}. Cite message ids from the excerpt as evidence.`,

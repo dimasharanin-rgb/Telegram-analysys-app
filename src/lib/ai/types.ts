@@ -9,6 +9,7 @@
 import type { z } from "zod";
 
 import type { EffortLevel } from "@/lib/config";
+import type { AiTask, ModelTier } from "./routing";
 import type {
   Analysis,
   AnalysisRequest,
@@ -39,18 +40,44 @@ export interface UsageTotals {
   calls: number;
 }
 
-/** One model call, reported as it happens so a job can bill it to a module. */
+/**
+ * One model call, reported as it happens.
+ *
+ * Wide enough to answer the questions that decide whether routing is working:
+ * which tier ran, what it cost, how long it took, whether the cache was hit
+ * and whether the call had to be escalated or repaired. None of this is ever
+ * shown to a user - it exists so the routing table can be tuned against real
+ * traffic rather than guesses.
+ */
 export interface UsageEvent {
+  /** Free-form stage label, e.g. `chunk_3` or a module id. */
   module: string;
+  task: AiTask;
+  tier: ModelTier;
+  provider: string;
   model: string;
   inputTokens: number;
   outputTokens: number;
   cachedInputTokens: number;
+  /** Micro-dollars, priced at the tier that actually ran. */
+  costMicros: number;
+  latencyMs: number;
+  retries: number;
+  cached: boolean;
+  escalated: boolean;
+  ok: boolean;
 }
 
 export interface ModuleRunOptions<T> {
   /** Names the module in usage records and logs. */
   moduleId: string;
+  /**
+   * Decides which model runs this module. Named `aiTask` because `task` below
+   * is the prompt instruction, and the two are very different things.
+   */
+  aiTask: AiTask;
+  /** Raises the module above its default tier, for selective escalation. */
+  tier?: ModelTier;
   /**
    * The cacheable prefix: identical across every module of one job, so the
    * conversation is paid for once rather than once per module.
