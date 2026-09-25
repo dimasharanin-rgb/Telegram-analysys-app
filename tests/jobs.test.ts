@@ -96,10 +96,30 @@ describe("products", () => {
     expect(estimateRequestCount(["COMMUNICATION", "INTERACTION"])).toBe(3);
   });
 
-  it("does not offer multimodal, because it is not implemented", () => {
+  it("does not offer multimodal until the deployment enables media", () => {
     const multimodal = getProduct("multimodal")!;
     expect(multimodal.available).toBe(false);
-    expect(multimodal.unavailableReason).toContain("not implemented");
+    expect(multimodal.unavailableReason).toContain("not enabled");
+  });
+
+  it("offers multimodal once media is enabled", () => {
+    process.env.NEXT_PUBLIC_MEDIA_ENABLED = "1";
+    try {
+      expect(getProduct("multimodal")!.available).toBe(true);
+    } finally {
+      delete process.env.NEXT_PUBLIC_MEDIA_ENABLED;
+    }
+  });
+
+  it("never claims to analyse video, even when media is enabled", () => {
+    // A participant cannot consent to something the application does not do,
+    // and the consent document is generated from this list.
+    process.env.NEXT_PUBLIC_MEDIA_ENABLED = "1";
+    try {
+      expect(getProduct("multimodal")!.contentTypes).not.toContain("VIDEO");
+    } finally {
+      delete process.env.NEXT_PUBLIC_MEDIA_ENABLED;
+    }
   });
 });
 

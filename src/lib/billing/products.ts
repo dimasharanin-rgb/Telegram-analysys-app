@@ -127,25 +127,54 @@ export const PRODUCTS: AnalysisProduct[] = [
     id: "multimodal",
     name: "Multimodal",
     description:
-      "Text plus photos, voice notes and video. The conversation model and the consent flow already carry these content types.",
+      "Text, plus the photos and voice notes that the conversation actually turned on. Screenshots are read for their text, voice messages are transcribed, and private images are counted without being examined.",
     analysisType: "multimodal",
     maxMessages: 60_000,
     maxMedia: 2_000,
     maxAudioMinutes: 180,
-    maxVideoMinutes: 60,
+    // V3 analyses no video. Kept at zero rather than removed so the field does
+    // not have to be reintroduced by a version that adds it.
+    maxVideoMinutes: 0,
     allowedModules: TEXT_MODULES,
-    contentTypes: ["TEXT", "IMAGES", "AUDIO", "VIDEO"],
+    // No VIDEO: a participant cannot consent to video analysis that does not
+    // exist, and listing it would make the consent document claim otherwise.
+    contentTypes: ["TEXT", "IMAGES", "AUDIO"],
     depth: "deep",
     model: null,
     tokenLimit: 8_000,
     priceMinor: money(process.env.NEXT_PUBLIC_PRICE_MULTIMODAL_MINOR, 1_900),
     currency: CURRENCY,
     credits: 1,
-    available: false,
-    unavailableReason:
-      "Media processing is not implemented yet. This build recognises photos, voice notes and video but does not analyse them.",
+    // Offered only where the deployment can actually deliver it.
+    //
+    // Multimodal needs a moderation provider before any image is examined and
+    // a transcription key before any voice note is heard. With neither set the
+    // pipeline still runs, correctly, and produces an analysis of the text plus
+    // a list of attachments it did not open - which is not what someone paying
+    // for "Multimodal" thinks they are buying. So the operator turns it on once
+    // the providers are configured, and the server refuses it independently if
+    // they are not.
+    get available(): boolean {
+      return mediaOffered();
+    },
+    get unavailableReason(): string | undefined {
+      return mediaOffered()
+        ? undefined
+        : "Media analysis is not enabled on this deployment.";
+    },
   },
 ];
+
+/**
+ * Whether to offer media analysis in the interface.
+ *
+ * A public flag because the plan picker is a client component and cannot read
+ * whether an API key exists. It answers "should we sell this?"; the server
+ * separately answers "can we run it?", and both have to be true.
+ */
+export function mediaOffered(): boolean {
+  return process.env.NEXT_PUBLIC_MEDIA_ENABLED === "1";
+}
 
 export const DEFAULT_PRODUCT_ID = "free";
 

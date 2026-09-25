@@ -14,6 +14,13 @@ import { batchModules } from "@/lib/analysis/modules";
 import { allowedModulesFor, getProduct } from "@/lib/billing/products";
 import { serverConfig } from "@/lib/config";
 import { AppError, asAppError } from "@/lib/errors";
+import type { DeclaredAttachment } from "@/lib/api/schemas";
+import { planMedia } from "@/server/repositories/media";
+import {
+  planMediaFor,
+  readMessageIdsFrom,
+  scopeFromContentTypes,
+} from "@/server/media/plan";
 import { log } from "@/lib/logger";
 import {
   analysisJobInputSchema,
@@ -55,11 +62,18 @@ export interface CreateJobRequest {
   productId: string;
   modules: string[];
   input: unknown;
+  /** What media the export contains. Metadata only; no bytes. */
+  media?: readonly DeclaredAttachment[];
 }
 
 export interface CreatedJob {
   job: AnalysisJobRecord;
   gate: ReturnType<typeof evaluateConsentGate>;
+  /**
+   * The files the analysis wants, if any. The client uploads exactly these and
+   * nothing else - an export's remaining photographs never leave the machine.
+   */
+  mediaRequests: { reference: string }[];
 }
 
 export function createAnalysisJob(request: CreateJobRequest): CreatedJob {
@@ -124,14 +138,35 @@ export function createAnalysisJob(request: CreateJobRequest): CreatedJob {
 
   jobs.saveJobInput(job.id, { ...parsed.data, modules });
 
+  // The media plan is built from what the client declared and what the product
+  // allows, and is recorded before any bytes exist. Each row is the permission
+  // to upload one file; anything else offered later is refused.
+  const plan = planMediaFor({
+    declared: request.media ?? [],
+    readMessageIds: readMessageIdsFrom(parsed.data.excerpts),
+    productId: product.id,
+    scope: scopeFromContentTypes(product.contentTypes),
+  });
+  if (plan.wanted.length > 0) {
+    planMedia(job.id, request.ownerId, plan.wanted);
+  }
+
   log.info("job.created", {
     jobId: job.id,
     productId: product.id,
     modules: modules.join(","),
     batchModules: batchModules(modules).length,
+    mediaDeclared: request.media?.length ?? 0,
+    mediaWanted: plan.wanted.length,
+    mediaSkippedOutOfScope: plan.skipped.outOfScope,
+    mediaSkippedOutsideWindow: plan.skipped.outsideReadWindow,
   });
 
-  return { job: settleStatus(job.id, request.ownerId), gate };
+  return {
+    job: settleStatus(job.id, request.ownerId),
+    gate,
+    mediaRequests: plan.wanted.map((asset) => ({ reference: asset.reference })),
+  };
 }
 
 /* -------------------------------------------------------------------------

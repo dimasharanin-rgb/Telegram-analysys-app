@@ -87,12 +87,42 @@ export const consentWithdrawSchema = z.object({
   token: z.string().min(16).max(128),
 });
 
+/**
+ * One attachment the client's export contains.
+ *
+ * Metadata only - no bytes. The server decides from this which files it wants
+ * and asks for exactly those, so an export full of holiday photographs does not
+ * upload a single one of them unless the analysis is going to read it.
+ *
+ * `reference` is the path the export itself used and is never treated as a
+ * filesystem path: storage keys are derived by hashing, so `../` in here is
+ * just characters that change a hash.
+ */
+export const declaredAttachmentSchema = z.object({
+  messageId: z.string().min(1).max(64),
+  reference: z.string().min(1).max(512),
+  kind: z.enum([
+    "IMAGE",
+    "AUDIO",
+    "VIDEO",
+    "FILE",
+    "STICKER",
+  ]),
+  mimeType: z.string().max(120).optional(),
+  sizeBytes: z.number().int().min(0).max(2_000_000_000).optional(),
+  durationSeconds: z.number().min(0).max(100_000).optional(),
+});
+
+export type DeclaredAttachment = z.infer<typeof declaredAttachmentSchema>;
+
 export const createJobSchema = z.object({
   conversationId: z.string().min(1).max(64),
   productId: z.string().min(1).max(40),
   modules: z.array(z.enum(ANALYSIS_MODULES)).min(1).max(ANALYSIS_MODULES.length),
   /** Validated properly by analysisJobInputSchema inside the job service. */
   input: boundedJson,
+  /** What media exists. Bounded so a malformed export cannot flood the plan. */
+  media: z.array(declaredAttachmentSchema).max(5_000).optional(),
 });
 
 export const checkoutSchema = z.object({

@@ -6,15 +6,26 @@ import { cx, formatBytes } from "@/lib/client/format";
 
 export interface UploadDropzoneProps {
   onFile: (file: File) => void;
+  /**
+   * The whole export folder. Called instead of `onFile` when the user picks a
+   * directory, so photos and voice notes can be matched to their messages.
+   * Absent when the deployment does not offer media analysis.
+   */
+  onFolder?: (files: File[]) => void;
   disabled?: boolean;
 }
 
-export function UploadDropzone({ onFile, disabled }: UploadDropzoneProps) {
+export function UploadDropzone({ onFile, onFolder, disabled }: UploadDropzoneProps) {
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const folderRef = React.useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = React.useState(false);
 
   const pick = React.useCallback(() => {
     if (!disabled) inputRef.current?.click();
+  }, [disabled]);
+
+  const pickFolder = React.useCallback(() => {
+    if (!disabled) folderRef.current?.click();
   }, [disabled]);
 
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
@@ -71,9 +82,24 @@ export function UploadDropzone({ onFile, disabled }: UploadDropzoneProps) {
           or <span className="font-medium text-brand-700">browse for result.json</span>
         </p>
         <p className="mt-4 text-xs text-faint">
-          JSON only · up to {formatBytes(publicLimits.maxUploadBytes)}
+          JSON up to {formatBytes(publicLimits.maxUploadBytes)}
         </p>
       </div>
+
+      {onFolder ? (
+        <p className="mt-3 text-center text-sm text-muted">
+          Have photos or voice messages in the export?{" "}
+          <button
+            type="button"
+            onClick={pickFolder}
+            disabled={disabled}
+            className="font-medium text-brand-700 underline decoration-brand-300 underline-offset-2 hover:decoration-brand-500 disabled:cursor-not-allowed disabled:text-muted"
+          >
+            Choose the whole export folder
+          </button>
+          . Only the files the analysis actually needs are uploaded.
+        </p>
+      ) : null}
 
       <input
         ref={inputRef}
@@ -88,6 +114,25 @@ export function UploadDropzone({ onFile, disabled }: UploadDropzoneProps) {
         }}
       />
 
+      {/*
+        Directory selection. `webkitdirectory` is the only cross-browser way to
+        read a folder, and React does not know the attribute, hence the cast.
+        Files stay in the page: nothing is sent until the server says which of
+        them the analysis wants.
+      */}
+      <input
+        ref={folderRef}
+        type="file"
+        multiple
+        {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
+        className="sr-only"
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
+          event.target.value = "";
+          if (files.length > 0) onFolder?.(files);
+        }}
+      />
+
       <details className="mt-6 rounded-lg border border-line bg-canvas-soft px-4 py-3">
         <summary className="cursor-pointer list-none text-sm font-medium text-ink-soft">
           How do I export a Telegram chat?
@@ -99,10 +144,14 @@ export function UploadDropzone({ onFile, disabled }: UploadDropzoneProps) {
           <li>1. Open Telegram Desktop on a computer (the mobile apps cannot export).</li>
           <li>2. Open the chat, then the ⋮ menu → <strong>Export chat history</strong>.</li>
           <li>
-            3. Set <strong>Format</strong> to <strong>Machine-readable JSON</strong>. You
-            can uncheck photos, videos and voice messages — this MVP only reads text.
+            3. Set <strong>Format</strong> to <strong>Machine-readable JSON</strong>.
+            Include photos and voice messages if you want them analysed; leave them
+            out for a text-only analysis.
           </li>
-          <li>4. Export, then upload the <code>result.json</code> file it creates.</li>
+          <li>
+            4. Export, then upload <code>result.json</code> — or choose the whole
+            export folder to include photos and voice messages.
+          </li>
         </ol>
       </details>
     </div>

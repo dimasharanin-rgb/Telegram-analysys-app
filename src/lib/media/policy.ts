@@ -97,15 +97,21 @@ export function mediaLimits(): MediaLimits {
 }
 
 /**
- * What a product includes. Nothing processes media today, so every currently
- * shipping product includes none of it - the shape is what matters, so that
- * turning it on is a configuration change rather than a new code path.
+ * What a product includes.
+ *
+ * The text products include no media at all: someone who bought a text
+ * analysis has not paid to have their photographs opened, and defaulting them
+ * in would be both a cost and a privacy surprise. `multimodal` takes the
+ * configured ceilings.
+ *
+ * Video is zero everywhere. V3 analyses none, and a video attachment fails
+ * validation before any limit is consulted - the zeros are belt and braces.
  */
 const PRODUCT_MEDIA: Record<string, Partial<MediaLimits>> = {
   free: { maxImages: 0, maxVideos: 0, maxAudioSeconds: 0, maxVideoSeconds: 0 },
   "deep-text": { maxImages: 0, maxVideos: 0, maxAudioSeconds: 0, maxVideoSeconds: 0 },
   "pro-credits": { maxImages: 0, maxVideos: 0, maxAudioSeconds: 0, maxVideoSeconds: 0 },
-  multimodal: {},
+  multimodal: { maxVideos: 0, maxVideoSeconds: 0 },
 };
 
 export function mediaLimitsFor(productId: string): MediaLimits {

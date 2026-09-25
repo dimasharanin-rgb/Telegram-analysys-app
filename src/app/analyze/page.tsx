@@ -21,6 +21,12 @@ import { ImportProgressIndicator } from "@/components/AnalysisProgress";
 import { ConversationPreview } from "@/components/ConversationPreview";
 import { ErrorState } from "@/components/ErrorState";
 import { UploadDropzone } from "@/components/UploadDropzone";
+import {
+  countAttachments,
+  declareMedia,
+  indexExportFiles,
+} from "@/lib/client/export-files";
+import { mediaOffered } from "@/lib/billing/products";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, SectionTitle } from "@/components/ui/Card";
 import {
@@ -77,6 +83,11 @@ export default function AnalyzePage() {
   // localStorage and navigator during render would differ between the server
   // pass and the client one, which is a hydration mismatch.
   const [language, setLanguage] = React.useState("en");
+  // Files the user picked alongside result.json. They stay in the page until
+  // the server says which of them the analysis wants; the rest never leave.
+  const [exportMedia, setExportMedia] = React.useState<Map<string, File>>(
+    () => new Map(),
+  );
 
   /* --- import ---------------------------------------------------------- */
 
@@ -195,6 +206,9 @@ export default function AnalyzePage() {
         })),
       });
 
+      const declared =
+        exportMedia.size > 0 ? declareMedia(conversation, exportMedia) : [];
+
       const job = await api.createJob({
         conversationId: created.conversation.id,
         productId,
@@ -203,12 +217,29 @@ export default function AnalyzePage() {
           ...built.request,
           advanced: digest,
           modules,
-          contentTypes: ["TEXT"],
+          contentTypes: getProduct(productId)?.contentTypes ?? ["TEXT"],
           depth: getProduct(productId)?.depth ?? "standard",
           language,
           coverage,
         },
+        ...(declared.length > 0 ? { media: declared } : {}),
       });
+
+      // Only the files the server asked for. An export full of holiday
+      // photographs uploads none of them unless the analysis will read them.
+      const wanted = job.mediaRequests
+        .map((requested) => {
+          const file = exportMedia.get(requested.reference);
+          return file ? { reference: requested.reference, file } : null;
+        })
+        .filter((item): item is { reference: string; file: File } => item !== null);
+
+      if (wanted.length > 0) {
+        setImportMessage(`Uploading ${wanted.length} attachments…`);
+        await api.uploadMedia(job.job.id, wanted, (sent, total) => {
+          setImportMessage(`Uploading attachments — ${sent} of ${total}`);
+        });
+      }
 
       router.push(`/analyses/${job.job.id}`);
     } catch (thrown) {
@@ -223,7 +254,16 @@ export default function AnalyzePage() {
       );
       setPhase("configure");
     }
-  }, [importState, selfId, gapMinutes, productId, modules, language, router]);
+  }, [
+    importState,
+    selfId,
+    gapMinutes,
+    productId,
+    modules,
+    language,
+    router,
+    exportMedia,
+  ]);
 
   const product = getProduct(productId);
 
@@ -282,7 +322,28 @@ export default function AnalyzePage() {
                 </p>
               </div>
               <UploadDropzone
-                onFile={(file) => void runImport(file, { gap: gapMinutes })}
+                onFile={(file) => {
+                  setExportMedia(new Map());
+                  void runImport(file, { gap: gapMinutes });
+                }}
+                onFolder={
+                  mediaOffered()
+                    ? (files) => {
+                        const indexed = indexExportFiles(files);
+                        if (indexed.json === null) {
+                          setError({
+                            code: "INVALID_JSON",
+                            message: "That folder has no result.json in it.",
+                            hint: "Choose the folder Telegram Desktop created, the one containing result.json.",
+                            retryable: true,
+                          });
+                          return;
+                        }
+                        setExportMedia(indexed.media);
+                        void runImport(indexed.json, { gap: gapMinutes });
+                      }
+                    : undefined
+                }
               />
             </>
           ) : null}

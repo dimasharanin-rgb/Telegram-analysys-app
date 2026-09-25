@@ -208,4 +208,69 @@ CREATE TABLE advice_requests (
 CREATE INDEX idx_advice_job_owner ON advice_requests(job_id, owner_id);
 `,
   },
+  {
+    id: "0003_media_and_observability",
+    sql: `
+-- One row per attachment an analysis intends to look at.
+--
+-- Created when the job is created, before any bytes exist: the row IS the
+-- permission to upload that file. An upload naming a reference with no row is
+-- refused, which is what stops an uploaded file from being anything other than
+-- something this owner's own export asked for.
+CREATE TABLE media_assets (
+  id                  TEXT PRIMARY KEY,
+  job_id              TEXT NOT NULL REFERENCES analysis_jobs(id) ON DELETE CASCADE,
+  owner_id            TEXT NOT NULL,
+  message_id          TEXT NOT NULL,
+  -- Relative path inside the export, e.g. photos/photo_1@01-01-2024.jpg
+  reference           TEXT NOT NULL,
+  category            TEXT NOT NULL,
+  mime_type           TEXT NOT NULL,
+  declared_size_bytes INTEGER NOT NULL,
+  -- Null until bytes arrive. Never a path the client chose.
+  storage_key         TEXT,
+  stored_size_bytes   INTEGER,
+  status              TEXT NOT NULL,
+  -- Gateway output. All null until the job runs.
+  classification      TEXT,
+  withheld_reason     TEXT,
+  description         TEXT,
+  extracted_text      TEXT,
+  shape               TEXT,
+  transcript_status   TEXT,
+  transcript_text     TEXT,
+  transcript_language TEXT,
+  created_at          TEXT NOT NULL,
+  processed_at        TEXT
+);
+CREATE UNIQUE INDEX idx_media_job_reference ON media_assets(job_id, reference);
+CREATE INDEX idx_media_job_owner ON media_assets(job_id, owner_id);
+
+-- Reusable analysis results, keyed by everything that would change the answer.
+CREATE TABLE analysis_cache (
+  cache_key    TEXT PRIMARY KEY,
+  owner_id     TEXT NOT NULL,
+  job_id       TEXT NOT NULL,
+  result_json  TEXT NOT NULL,
+  created_at   TEXT NOT NULL,
+  last_used_at TEXT NOT NULL,
+  hit_count    INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_cache_owner ON analysis_cache(owner_id);
+
+-- Observability: what each call cost, on which tier, and how it went.
+-- Columns added rather than a new table so existing per-module accounting and
+-- the new routing figures stay in one place.
+ALTER TABLE usage_records ADD COLUMN task TEXT NOT NULL DEFAULT '';
+ALTER TABLE usage_records ADD COLUMN tier TEXT NOT NULL DEFAULT '';
+ALTER TABLE usage_records ADD COLUMN provider TEXT NOT NULL DEFAULT '';
+ALTER TABLE usage_records ADD COLUMN cached_input_tokens INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE usage_records ADD COLUMN latency_ms INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE usage_records ADD COLUMN retries INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE usage_records ADD COLUMN cached INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE usage_records ADD COLUMN escalated INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE usage_records ADD COLUMN ok INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE usage_records ADD COLUMN media_kind TEXT;
+`,
+  },
 ];
