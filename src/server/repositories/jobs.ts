@@ -302,6 +302,14 @@ export function getJobResult(jobId: string): unknown | null {
   return row ? (JSON.parse(row.result) as unknown) : null;
 }
 
+/**
+ * One model call, as recorded.
+ *
+ * Wider than V2's four numbers because routing cannot be tuned without knowing
+ * which tier ran, what it cost, how long it took and whether it had to be
+ * repaired or escalated. None of this is user-facing: it exists so the routing
+ * table can be judged against real traffic instead of guesses.
+ */
 export interface UsageInput {
   jobId: string;
   ownerId: string;
@@ -310,6 +318,18 @@ export interface UsageInput {
   inputTokens: number;
   outputTokens: number;
   costMicros: number;
+  /** The routing task and tier. Empty only for a call made before routing. */
+  task?: string;
+  tier?: string;
+  provider?: string;
+  cachedInputTokens?: number;
+  latencyMs?: number;
+  retries?: number;
+  cached?: boolean;
+  escalated?: boolean;
+  ok?: boolean;
+  /** Set for a call whose input was an attachment, so media cost is separable. */
+  mediaKind?: string | null;
 }
 
 /** Records one model call and rolls the totals up onto the job. */
@@ -318,8 +338,10 @@ export function recordUsage(input: UsageInput): void {
   db.transaction(() => {
     db.prepare(
       `INSERT INTO usage_records
-         (id, job_id, owner_id, module, model, input_tokens, output_tokens, cost_micros, at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, job_id, owner_id, module, model, input_tokens, output_tokens,
+          cost_micros, at, task, tier, provider, cached_input_tokens,
+          latency_ms, retries, cached, escalated, ok, media_kind)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       newId("use"),
       input.jobId,
@@ -330,6 +352,16 @@ export function recordUsage(input: UsageInput): void {
       input.outputTokens,
       input.costMicros,
       nowIso(),
+      input.task ?? "",
+      input.tier ?? "",
+      input.provider ?? "",
+      input.cachedInputTokens ?? 0,
+      input.latencyMs ?? 0,
+      input.retries ?? 0,
+      input.cached === true ? 1 : 0,
+      input.escalated === true ? 1 : 0,
+      input.ok === false ? 0 : 1,
+      input.mediaKind ?? null,
     );
     db.prepare(
       `UPDATE analysis_jobs
@@ -350,21 +382,43 @@ export interface UsageRecord {
   outputTokens: number;
   costMicros: number;
   at: string;
+  task: string;
+  tier: string;
+  provider: string;
+  cachedInputTokens: number;
+  latencyMs: number;
+  retries: number;
+  cached: boolean;
+  escalated: boolean;
+  ok: boolean;
+}
+
+interface UsageRow {
+  module: string;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  cost_micros: number;
+  at: string;
+  task: string;
+  tier: string;
+  provider: string;
+  cached_input_tokens: number;
+  latency_ms: number;
+  retries: number;
+  cached: number;
+  escalated: number;
+  ok: number;
 }
 
 export function listUsage(jobId: string): UsageRecord[] {
   return getDb()
-    .prepare<
-      [string],
-      {
-        module: string;
-        model: string;
-        input_tokens: number;
-        output_tokens: number;
-        cost_micros: number;
-        at: string;
-      }
-    >("SELECT module, model, input_tokens, output_tokens, cost_micros, at FROM usage_records WHERE job_id = ? ORDER BY at ASC")
+    .prepare<[string], UsageRow>(
+      `SELECT module, model, input_tokens, output_tokens, cost_micros, at, task,
+              tier, provider, cached_input_tokens, latency_ms, retries, cached,
+              escalated, ok
+         FROM usage_records WHERE job_id = ? ORDER BY at ASC`,
+    )
     .all(jobId)
     .map((row) => ({
       module: row.module,
@@ -373,7 +427,66 @@ export function listUsage(jobId: string): UsageRecord[] {
       outputTokens: row.output_tokens,
       costMicros: row.cost_micros,
       at: row.at,
+      task: row.task,
+      tier: row.tier,
+      provider: row.provider,
+      cachedInputTokens: row.cached_input_tokens,
+      latencyMs: row.latency_ms,
+      retries: row.retries,
+      cached: row.cached === 1,
+      escalated: row.escalated === 1,
+      ok: row.ok === 1,
     }));
+}
+
+/**
+ * What one analysis spent, by tier.
+ *
+ * The figure that says whether routing is working: if the standard tier is
+ * carrying calls the cheap tier could have done, it shows up here as cost
+ * concentrated in the wrong row.
+ */
+export interface TierSpend {
+  tier: string;
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  costMicros: number;
+  cachedCalls: number;
+  escalatedCalls: number;
+  failedCalls: number;
+  medianLatencyMs: number;
+}
+
+export function spendByTier(jobId: string): TierSpend[] {
+  const records = listUsage(jobId);
+  const byTier = new Map<string, UsageRecord[]>();
+
+  for (const record of records) {
+    const key = record.tier || "unrouted";
+    const list = byTier.get(key) ?? [];
+    list.push(record);
+    byTier.set(key, list);
+  }
+
+  return [...byTier.entries()]
+    .map(([tier, list]) => {
+      const latencies = list.map((r) => r.latencyMs).sort((a, b) => a - b);
+      return {
+        tier,
+        calls: list.length,
+        inputTokens: list.reduce((sum, r) => sum + r.inputTokens, 0),
+        outputTokens: list.reduce((sum, r) => sum + r.outputTokens, 0),
+        costMicros: list.reduce((sum, r) => sum + r.costMicros, 0),
+        cachedCalls: list.filter((r) => r.cached).length,
+        escalatedCalls: list.filter((r) => r.escalated).length,
+        failedCalls: list.filter((r) => !r.ok).length,
+        // Median rather than mean: one 90-second call should not make every
+        // other call in the tier look slow.
+        medianLatencyMs: latencies[Math.floor(latencies.length / 2)] ?? 0,
+      };
+    })
+    .sort((a, b) => b.costMicros - a.costMicros);
 }
 
 export function deleteJob(id: string, ownerId: string): boolean {

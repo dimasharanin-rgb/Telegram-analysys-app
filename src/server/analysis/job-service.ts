@@ -18,6 +18,14 @@ import type { DeclaredAttachment } from "@/lib/api/schemas";
 import { enrichExcerpts } from "@/lib/ai/media-context";
 import type { AttachmentAnalyser } from "@/lib/ai/claude";
 import { processJobMedia } from "@/server/media/process";
+import {
+  cacheKeyFor,
+  digestExcerpts,
+  digestMedia,
+  findCachedResult,
+  storeCachedResult,
+} from "./cache";
+import { sizeTierFor } from "@/lib/analysis/size-tiers";
 import type { Excerpt } from "@/lib/ai/schema";
 import { planMedia } from "@/server/repositories/media";
 import {
@@ -32,7 +40,7 @@ import {
 } from "@/lib/ai/modules/input";
 import type { AIAnalysisService } from "@/lib/ai/types";
 import {
-  costMicros,
+
   runModularAnalysis,
   type AnalysisResultV2,
   type ModularProgressEvent,
@@ -248,6 +256,14 @@ export interface RunJobOptions {
   service: AIAnalysisService;
   onProgress?: (event: ModularProgressEvent) => void;
   signal?: AbortSignal;
+  /**
+   * Skip the cache and run the analysis again.
+   *
+   * The one thing the cache key cannot express: "I have read this and I want
+   * another go at it". Everything else that should invalidate a result is in
+   * the key, so this exists only for a deliberate request.
+   */
+  regenerate?: boolean;
 }
 
 export interface RunJobResult {
@@ -326,7 +342,19 @@ export async function runAnalysisJob(options: RunJobOptions): Promise<RunJobResu
       model: event.model,
       inputTokens: event.inputTokens,
       outputTokens: event.outputTokens,
-      costMicros: costMicros(event),
+      // Priced at the tier that ran, which is the whole point of routing -
+      // the flat estimate would report a cheap call as costing Opus money.
+      costMicros: event.costMicros,
+      task: event.task,
+      tier: event.tier,
+      provider: event.provider,
+      cachedInputTokens: event.cachedInputTokens,
+      latencyMs: event.latencyMs,
+      retries: event.retries,
+      cached: event.cached,
+      escalated: event.escalated,
+      ok: event.ok,
+      mediaKind: mediaKindForTask(event.task),
     });
   });
 
@@ -357,10 +385,40 @@ export async function runAnalysisJob(options: RunJobOptions): Promise<RunJobResu
       ...(options.signal ? { signal: options.signal } : {}),
     });
 
+    const enriched = enrichExcerpts(payload.excerpts, mediaOutcome);
+
+    // 4. Has this exact analysis already been produced?
+    //
+    //    Checked after media rather than before, because a transcript changes
+    //    what the model reads and therefore what the answer should be - a key
+    //    computed before transcription would collide with the run that had none.
+    const cacheKey = cacheKeyFor({
+      conversationDigest: digestExcerpts(enriched),
+      productId: job.productId,
+      modules: job.modules,
+      language: payload.language ?? "en",
+      mediaDigest: digestMedia(mediaOutcome.media, mediaOutcome.transcripts),
+      sizeTierId: sizeTierFor(job.productId).id,
+    });
+
+    const cached =
+      options.regenerate === true ? null : findCachedResult(cacheKey, ownerId);
+
+    if (cached !== null) {
+      jobs.saveJobResult(jobId, cached);
+      pruneInputToEvidence(jobId, payload, cached);
+      const reused = jobs.transitionJob(jobId, "COMPLETED");
+      // The credit is handed back: nothing was spent producing this.
+      releaseEntitlement(entitlementId);
+      running.delete(jobId);
+      log.info("job.completed_from_cache", { jobId });
+      return { job: reused, result: cached };
+    }
+
     const { result } = await runModularAnalysis({
       input: {
         ...payload,
-        excerpts: enrichExcerpts(payload.excerpts, mediaOutcome),
+        excerpts: enriched,
       },
       service,
       ...(options.signal ? { signal: options.signal } : {}),
@@ -371,7 +429,8 @@ export async function runAnalysisJob(options: RunJobOptions): Promise<RunJobResu
     });
 
     jobs.saveJobResult(jobId, result);
-    pruneInputToEvidence(jobId, input.payload as AnalysisJobInput, result);
+    storeCachedResult(cacheKey, ownerId, jobId, result);
+    pruneInputToEvidence(jobId, payload, result);
     const completed = jobs.transitionJob(jobId, "COMPLETED");
 
     log.info("job.completed", {
@@ -490,4 +549,18 @@ function asAttachmentAnalyser(service: AIAnalysisService): AttachmentAnalyser | 
   return typeof candidate.runAttachmentTask === "function"
     ? (service as unknown as AttachmentAnalyser)
     : null;
+}
+
+/**
+ * Which media kind a task's input was, if any.
+ *
+ * Lets media cost be separated from text cost in the usage table without the
+ * call site having to know, and without a second column the routing layer would
+ * have to remember to populate.
+ */
+function mediaKindForTask(task: string): string | null {
+  if (task.startsWith("IMAGE_")) return "image";
+  if (task.startsWith("SCREENSHOT")) return "image";
+  if (task.startsWith("DOCUMENT_")) return "document";
+  return null;
 }

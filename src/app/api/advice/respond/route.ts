@@ -15,7 +15,6 @@ import { responseAdviceSystemPrompt } from "@/lib/ai/modules/prompts";
 import { fenceContent, sanitiseForPrompt } from "@/lib/ai/injection";
 import { serverConfig } from "@/lib/config";
 import { AppError } from "@/lib/errors";
-import { costMicros } from "@/lib/pipeline/modular";
 import { evaluateConsentGate } from "@/server/consent/gate";
 import {
   releaseAdviceRequest,
@@ -75,7 +74,16 @@ export const POST = withOwner(
         model: event.model,
         inputTokens: event.inputTokens,
         outputTokens: event.outputTokens,
-        costMicros: costMicros(event),
+        costMicros: event.costMicros,
+        task: event.task,
+        tier: event.tier,
+        provider: event.provider,
+        cachedInputTokens: event.cachedInputTokens,
+        latencyMs: event.latencyMs,
+        retries: event.retries,
+        cached: event.cached,
+        escalated: event.escalated,
+        ok: event.ok,
       });
     });
 

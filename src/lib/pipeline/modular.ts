@@ -357,17 +357,3 @@ export async function runModularAnalysis(
   }
 }
 
-/** Micro-dollars for one model call, from the configured per-MTok prices. */
-export function costMicros(usage: {
-  inputTokens: number;
-  outputTokens: number;
-  cachedInputTokens: number;
-}): number {
-  const pricing = serverConfig().anthropic.pricing;
-  const freshInput = Math.max(0, usage.inputTokens - usage.cachedInputTokens);
-  return Math.round(
-    freshInput * pricing.inputPerMTok +
-      usage.cachedInputTokens * pricing.cacheReadPerMTok +
-      usage.outputTokens * pricing.outputPerMTok,
-  );
-}

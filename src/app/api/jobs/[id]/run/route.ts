@@ -25,6 +25,10 @@ type Frame =
 export async function POST(request: Request, context: Context): Promise<Response> {
   const { id } = await context.params;
 
+  // An explicit ask for a fresh run. A query parameter rather than a body
+  // because the request is a stream and the body is not read otherwise.
+  const regenerate = new URL(request.url).searchParams.get("regenerate") === "1";
+
   return withOwner(
     async ({ ownerId }) => {
       let service: ClaudeAnalysisService;
@@ -54,6 +58,7 @@ export async function POST(request: Request, context: Context): Promise<Response
               ownerId,
               service,
               signal: controller.signal,
+              regenerate,
               onProgress: (event) => send({ type: "progress", data: event }),
             });
             send({ type: "result", data: { jobId: job.id, status: job.status } });
