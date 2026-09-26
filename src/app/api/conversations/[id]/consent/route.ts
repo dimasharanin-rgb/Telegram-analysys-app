@@ -8,7 +8,7 @@
 
 import { createConsentRequestSchema } from "@/lib/api/schemas";
 import { serverConfig } from "@/lib/config";
-import { SUPPORTED_DATA_TYPES } from "@/lib/consent/state";
+import { DEFAULT_REQUESTED_DATA_TYPES } from "@/lib/consent/state";
 import { AppError } from "@/lib/errors";
 import { consentProvider } from "@/server/consent/provider";
 import { evaluateConsentGate } from "@/server/consent/gate";
@@ -52,11 +52,14 @@ export async function POST(request: Request, context: Context): Promise<Response
       conversationId: id,
       participantId: participant.id,
       requestedByLabel: self?.displayName ?? "The person who exported this chat",
-      // Only text is analysed in this build, so only text is ever requested.
-      dataTypes: parsed.data.dataTypes ?? [...SUPPORTED_DATA_TYPES],
+      // Text unless the caller asks for more. Images and voice messages can be
+      // analysed now, but requesting them by default would ask every
+      // participant to authorise more than most analyses use.
+      dataTypes: parsed.data.dataTypes ?? [...DEFAULT_REQUESTED_DATA_TYPES],
       purpose:
         "To produce a descriptive analysis of how this conversation works: statistics about messaging patterns, and written commentary on communication patterns.",
       aiProvider: config.consent.aiProviderName,
+      transcriptionProvider: config.consent.transcriptionProviderName,
       validForDays: config.consent.validForDays,
     });
 

@@ -105,7 +105,28 @@ export const CONSENT_DATA_TYPES = ["TEXT", "IMAGES", "AUDIO", "VIDEO"] as const;
 export type ConsentDataType = (typeof CONSENT_DATA_TYPES)[number];
 
 /** Only text is analysed today; the rest are declared but never requested. */
-export const SUPPORTED_DATA_TYPES: readonly ConsentDataType[] = ["TEXT"];
+/**
+ * Content types this build can actually process.
+ *
+ * A capability statement, not a default. Video is absent because V3 analyses
+ * none, so a participant can never be asked to consent to it.
+ */
+export const SUPPORTED_DATA_TYPES: readonly ConsentDataType[] = [
+  "TEXT",
+  "IMAGES",
+  "AUDIO",
+];
+
+/**
+ * What a consent request asks for when the caller does not say.
+ *
+ * Text only, deliberately. Asking every participant to authorise having their
+ * photographs examined and their voice sent to a transcription service - on the
+ * chance that the analysis might want to - is the wrong default: it requests
+ * more than most analyses need, and a consent form that over-asks trains people
+ * to skim it. A media analysis passes the wider set explicitly.
+ */
+export const DEFAULT_REQUESTED_DATA_TYPES: readonly ConsentDataType[] = ["TEXT"];
 
 export const CONSENT_STATUS_LABELS: Record<ConsentStatus, string> = {
   PENDING: "Waiting for a response",

@@ -12,6 +12,7 @@ import {
   interpretModerationBody,
 } from "@/lib/media/providers/http-moderation";
 import { MediaClassification } from "@/lib/media/classification";
+import { resetServerConfigCache, serverConfig } from "@/lib/config";
 
 /* -------------------------------------------------------------------------
  * AssemblyAI
@@ -27,6 +28,7 @@ function provider(over: Partial<AssemblyAiOptions> = {}): AssemblyAiTranscriptio
   return new AssemblyAiTranscriptionProvider({
     apiKey: "test-key",
     baseUrl: "https://api.example.test",
+    speechModels: ["universal-3-5-pro", "universal-2"],
     pollIntervalMs: 1,
     pollTimeoutMs: 100,
     maxAttempts: 3,
@@ -138,6 +140,33 @@ describe("a successful transcription", () => {
     expect(transcript.language).toBe("en");
     expect(transcript.confidence).toBe(0.94);
     expect(transcript.detail).toBeNull();
+  });
+
+  it("sends the model fallback list rather than letting the API choose", async () => {
+    // Omitting speech_models does not mean "the newest model" - it means the
+    // API applies its own older default, so the flagship never runs. This was
+    // a live defect.
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ upload_url: "https://cdn.example.test/a" }))
+      .mockResolvedValueOnce(jsonResponse({ id: "job-1" }))
+      .mockResolvedValueOnce(jsonResponse({ status: "completed", text: "hello" }));
+
+    await provider().transcribe(VOICE);
+
+    const submitBody = JSON.parse(String(fetchMock.mock.calls[1]![1].body));
+    expect(submitBody.speech_models).toEqual(["universal-3-5-pro", "universal-2"]);
+  });
+
+  it("lets the model list be reconfigured without touching the provider", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ upload_url: "https://cdn.example.test/a" }))
+      .mockResolvedValueOnce(jsonResponse({ id: "job-1" }))
+      .mockResolvedValueOnce(jsonResponse({ status: "completed", text: "hello" }));
+
+    await provider({ speechModels: ["some-newer-model"] }).transcribe(VOICE);
+
+    const submitBody = JSON.parse(String(fetchMock.mock.calls[1]![1].body));
+    expect(submitBody.speech_models).toEqual(["some-newer-model"]);
   });
 
   it("asks the provider to detect the language rather than assuming one", async () => {
@@ -320,5 +349,61 @@ describe("moderation scores map to classifications", () => {
   it("passes through a missing confidence as unknown rather than certain", () => {
     const result = interpretModerationBody({ categories: {} });
     expect(result.ok && result.confidence).toBeNull();
+  });
+});
+
+/* -------------------------------------------------------------------------
+ * Configuration defaults
+ * ---------------------------------------------------------------------- */
+
+describe("the shipped configuration", () => {
+  afterEach(() => {
+    delete process.env.ASSEMBLYAI_BASE_URL;
+    delete process.env.ASSEMBLYAI_SPEECH_MODELS;
+    resetServerConfigCache();
+  });
+
+  it("sends audio to the EU region by default", () => {
+    resetServerConfigCache();
+    // The audio is private conversation, and the consent document names where
+    // it goes - so the region is part of what was disclosed, not a deployment
+    // detail to be discovered later.
+    expect(serverConfig().media.transcription.baseUrl).toBe(
+      "https://api.eu.assemblyai.com",
+    );
+  });
+
+  it("can be pointed at another region", () => {
+    process.env.ASSEMBLYAI_BASE_URL = "https://api.assemblyai.com";
+    resetServerConfigCache();
+    expect(serverConfig().media.transcription.baseUrl).toBe(
+      "https://api.assemblyai.com",
+    );
+  });
+
+  it("defaults to the flagship model with a broad-coverage fallback", () => {
+    resetServerConfigCache();
+    expect(serverConfig().media.transcription.speechModels).toEqual([
+      "universal-3-5-pro",
+      "universal-2",
+    ]);
+  });
+
+  it("takes a reconfigured model list, ignoring blanks", () => {
+    process.env.ASSEMBLYAI_SPEECH_MODELS = " model-a , , model-b ";
+    resetServerConfigCache();
+    expect(serverConfig().media.transcription.speechModels).toEqual([
+      "model-a",
+      "model-b",
+    ]);
+  });
+
+  it("falls back to the defaults when the list is empty", () => {
+    process.env.ASSEMBLYAI_SPEECH_MODELS = "  , ,  ";
+    resetServerConfigCache();
+    expect(serverConfig().media.transcription.speechModels).toEqual([
+      "universal-3-5-pro",
+      "universal-2",
+    ]);
   });
 });

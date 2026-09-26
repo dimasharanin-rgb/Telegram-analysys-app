@@ -13,7 +13,8 @@ import {
 import {
   buildConsentDocument,
   CONSENT_DOCUMENT_VERSION,
-  versionDisclosesMedia,
+  versionDisclosesAudio,
+  versionDisclosesImages,
 } from "@/lib/consent/document";
 import { AppError } from "@/lib/errors";
 import { InternalConsentProvider } from "@/server/consent/provider";
@@ -456,17 +457,84 @@ describe("the document is what a participant relied on", () => {
   });
 
   it("does not let an older consent authorise media it was never told about", () => {
-    // Version 1.0 said attachments were never opened. Someone who agreed to
-    // that agreed to a text analysis, whatever the stored data types say.
-    expect(versionDisclosesMedia("1.0")).toBe(false);
-    expect(versionDisclosesMedia("1.1")).toBe(true);
-    expect(versionDisclosesMedia(CONSENT_DOCUMENT_VERSION)).toBe(true);
+    // 1.0 said attachments were never opened. Someone who agreed to that
+    // agreed to a text analysis, whatever the stored data types say.
+    expect(versionDisclosesImages("1.0")).toBe(false);
+    expect(versionDisclosesAudio("1.0")).toBe(false);
+  });
+
+  it("gates images and audio on the version that actually disclosed each", () => {
+    // 1.1 described image handling and named the processor, but said only that
+    // voice messages go to "a speech-to-text service" - not which one. This
+    // application names its text processor explicitly, so it cannot treat the
+    // audio one as immaterial.
+    expect(versionDisclosesImages("1.1")).toBe(true);
+    expect(versionDisclosesAudio("1.1")).toBe(false);
+
+    expect(versionDisclosesImages("1.2")).toBe(true);
+    expect(versionDisclosesAudio("1.2")).toBe(true);
+  });
+
+  it("covers both at the current version", () => {
+    expect(versionDisclosesImages(CONSENT_DOCUMENT_VERSION)).toBe(true);
+    expect(versionDisclosesAudio(CONSENT_DOCUMENT_VERSION)).toBe(true);
   });
 
   it("compares versions numerically, not as strings", () => {
     // "1.10" is later than "1.9"; a string comparison would say otherwise.
-    expect(versionDisclosesMedia("1.10")).toBe(true);
-    expect(versionDisclosesMedia("0.9")).toBe(false);
-    expect(versionDisclosesMedia("2.0")).toBe(true);
+    expect(versionDisclosesAudio("1.10")).toBe(true);
+    expect(versionDisclosesAudio("0.9")).toBe(false);
+    expect(versionDisclosesAudio("2.0")).toBe(true);
+  });
+});
+
+describe("the transcription processor is named, not implied", () => {
+  const base = {
+    participantName: "Alex",
+    requestedByLabel: "Sam",
+    conversationTitle: "Alex and Sam",
+    messageCount: 1_200,
+    dateRange: { start: "2024-01-01", end: "2024-06-01" },
+    expiresAt: "2024-07-01T00:00:00.000Z",
+    purpose: "Communication analysis.",
+    aiProvider: "Anthropic (Claude)",
+  };
+
+  function processing(dataTypes: ConsentDataType[], transcriptionProvider?: string) {
+    const document = buildConsentDocument({
+      ...base,
+      dataTypes,
+      ...(transcriptionProvider ? { transcriptionProvider } : {}),
+    });
+    return document.sections
+      .find((section) => section.heading.includes("AI processing"))!
+      .body.join(" ");
+  }
+
+  it("names the speech-to-text company when audio is in scope", () => {
+    const text = processing(["TEXT", "AUDIO"], "AssemblyAI");
+    expect(text).toContain("AssemblyAI");
+    expect(text).toContain("receives the audio itself");
+  });
+
+  it("says the transcript may then reach the text processor and the report", () => {
+    const text = processing(["TEXT", "AUDIO"], "AssemblyAI");
+    expect(text).toContain("Anthropic (Claude)");
+    expect(text).toContain("quoted in the report");
+  });
+
+  it("names nobody when no audio is being sent", () => {
+    const text = processing(["TEXT", "IMAGES"], "AssemblyAI");
+    expect(text).not.toContain("AssemblyAI");
+    expect(text).not.toContain("speech-to-text");
+  });
+
+  it("degrades to a generic description rather than naming the wrong company", () => {
+    // An older consent record has no stored transcription provider. Filling it
+    // in from current configuration would claim a disclosure that was never
+    // made to that participant.
+    const text = processing(["TEXT", "AUDIO"]);
+    expect(text).toContain("a speech-to-text provider");
+    expect(text).not.toContain("AssemblyAI");
   });
 });

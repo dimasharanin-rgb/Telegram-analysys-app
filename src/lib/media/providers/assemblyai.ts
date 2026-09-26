@@ -49,6 +49,15 @@ const SUPPORTED_MIME: ReadonlySet<string> = new Set([
 export interface AssemblyAiOptions {
   apiKey: string;
   baseUrl: string;
+  /**
+   * Ordered model fallback list.
+   *
+   * Sent on every request and not optional in practice: leaving it off does not
+   * select the newest model, it lets the API apply its own older default. The
+   * list is ordered rather than parallel - the first available model produces
+   * the transcript, and exactly one model does.
+   */
+  speechModels: readonly string[];
   pollIntervalMs: number;
   pollTimeoutMs: number;
   maxAttempts: number;
@@ -163,6 +172,14 @@ export class AssemblyAiTranscriptionProvider implements TranscriptionProvider {
       },
       body: JSON.stringify({
         audio_url: audioUrl,
+        // Ordered fallback. Worth knowing what this actually buys here: the
+        // flagship's native language set does not include Latvian or Russian,
+        // which are two of the three languages these conversations are in, so
+        // for most of this application's audio it falls back internally to the
+        // broad-coverage model and that is what transcribes. Sending the list
+        // still gets the better model for the English stretches, and degrades
+        // correctly rather than silently picking an older default.
+        speech_models: [...this.options.speechModels],
         // Voice notes in this application are routinely Latvian, Russian and
         // English in the same conversation, so guessing one language for the
         // account would be wrong most of the time.

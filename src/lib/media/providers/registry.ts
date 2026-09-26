@@ -138,6 +138,7 @@ function buildTranscription(
       return new AssemblyAiTranscriptionProvider({
         apiKey: config.apiKey,
         baseUrl: config.baseUrl,
+        speechModels: config.speechModels,
         pollIntervalMs: config.pollIntervalMs,
         pollTimeoutMs: config.pollTimeoutMs,
         maxAttempts: config.maxAttempts,

@@ -30,6 +30,11 @@ export interface CreateConsentRequestInput {
   dataTypes: ConsentDataType[];
   purpose: string;
   aiProvider: string;
+  /**
+   * Who transcribes voice messages. Optional: a request that does not cover
+   * audio should not name a processor that will receive nothing.
+   */
+  transcriptionProvider?: string;
   /** How long the link stays usable. */
   validForDays: number;
 }
@@ -75,6 +80,12 @@ export class InternalConsentProvider implements ConsentProvider {
       dataTypes: input.dataTypes,
       purpose: input.purpose,
       aiProvider: input.aiProvider,
+      // Recorded only when audio is actually in scope, so the stored record
+      // says who was named to this participant rather than who happens to be
+      // configured now.
+      transcriptionProvider: input.dataTypes.includes("AUDIO")
+        ? (input.transcriptionProvider ?? null)
+        : null,
       documentVersion: CONSENT_DOCUMENT_VERSION,
       expiresAt,
     });

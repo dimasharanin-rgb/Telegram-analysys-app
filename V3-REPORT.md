@@ -378,3 +378,19 @@ build that is not present, while the full Chromium beside it works.
 
 9. **The `mediaUsage` estimate is recorded, not shown.** Job creation returns
    it and logs it; no screen displays it yet.
+
+10. **Media consent is never requested by default.** `DEFAULT_REQUESTED_DATA_TYPES`
+    is text only, so an analysis that wants images or voice messages has to ask
+    for them explicitly when creating the consent request. Deliberate — asking
+    every participant to authorise having their photographs examined and their
+    voice transcribed, on the chance the analysis might use them, over-asks and
+    trains people to skim the form. But it does mean the media pipeline stays
+    inert until a caller passes the wider set, and nothing in the UI does that
+    yet.
+
+11. **The AssemblyAI parameters are unverified against live docs.** Egress to
+    every AssemblyAI host is blocked in the build environment, including
+    `api.assemblyai.com`, so neither the documentation nor the API itself could
+    be reached. `speech_models` and `language_detection` come from a supplied
+    reference document, not from the live spec, and transcription has never run
+    against the real service from here — only against a fake provider.

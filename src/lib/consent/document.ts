@@ -12,22 +12,38 @@
 
 import type { ConsentDataType } from "./state";
 
-export const CONSENT_DOCUMENT_VERSION = "1.1";
+export const CONSENT_DOCUMENT_VERSION = "1.2";
 
 /**
- * The first version whose text describes media being examined.
+ * When each content type started being disclosed honestly.
  *
- * Version 1.0 told participants that "photos, voice messages and videos are
- * counted but never opened or sent". Anyone who agreed to that agreed to a
- * text analysis, whatever data types their request happened to list - so a
- * consent recorded under an earlier document does not authorise media, and the
- * gate enforces that rather than trusting the stored list alone.
+ * Gated per type rather than by one "media" flag, because the two were
+ * disclosed at different times and a participant only agreed to what the
+ * document in front of them actually said.
+ *
+ * 1.0 told participants that "photos, voice messages and videos are counted but
+ * never opened or sent". Anyone who agreed to that agreed to a text analysis,
+ * whatever data types their request listed.
+ *
+ * 1.1 described image handling in full, and named the processor.
+ *
+ * 1.2 names the transcription processor. 1.1 did say voice messages are
+ * transcribed "by a speech-to-text service", but it did not say by whom, and
+ * this application treats the identity of a processor as material - it names
+ * the text processor explicitly, so it cannot claim the audio one does not
+ * matter. A 1.1 consent therefore covers images but not audio.
  */
-export const MEDIA_DISCLOSED_FROM_VERSION = "1.1";
+export const IMAGES_DISCLOSED_FROM_VERSION = "1.1";
+export const AUDIO_DISCLOSED_FROM_VERSION = "1.2";
 
-/** Whether a consent given under `version` covers attachments being examined. */
-export function versionDisclosesMedia(version: string): boolean {
-  return compareVersions(version, MEDIA_DISCLOSED_FROM_VERSION) >= 0;
+/** Whether a consent given under `version` covers images being examined. */
+export function versionDisclosesImages(version: string): boolean {
+  return compareVersions(version, IMAGES_DISCLOSED_FROM_VERSION) >= 0;
+}
+
+/** Whether it covers voice messages being sent for transcription. */
+export function versionDisclosesAudio(version: string): boolean {
+  return compareVersions(version, AUDIO_DISCLOSED_FROM_VERSION) >= 0;
 }
 
 /** Numeric, part by part, so "1.10" sorts above "1.9" rather than below it. */
@@ -54,6 +70,14 @@ export interface ConsentDocumentInput {
   dataTypes: ConsentDataType[];
   purpose: string;
   aiProvider: string;
+  /**
+   * Who transcribes voice messages, when audio is in scope.
+   *
+   * Separate from `aiProvider` because it is a different company receiving a
+   * different kind of data. Optional so a text-only request need not name a
+   * processor that will never receive anything.
+   */
+  transcriptionProvider?: string;
   expiresAt: string;
 }
 
@@ -89,6 +113,27 @@ const ALL_DATA_TYPES: ConsentDataType[] = ["TEXT", "IMAGES", "AUDIO", "VIDEO"];
  * line describes a real step in the pipeline, including the ones that mean
  * something is *not* examined.
  */
+/**
+ * The second processor, named only when it will receive something.
+ *
+ * A voice message is not text, and it does not go to the same company, so
+ * saying so is not a detail - it is the difference between an accurate
+ * disclosure and one that lists a single processor while a second receives
+ * someone's recorded voice.
+ */
+function audioProcessorLines(
+  included: ReadonlySet<ConsentDataType>,
+  input: ConsentDocumentInput,
+): string[] {
+  if (!included.has("AUDIO")) return [];
+
+  const provider = input.transcriptionProvider ?? "a speech-to-text provider";
+  return [
+    `Voice messages are sent separately to ${provider}, a speech-to-text service, which converts the recording into text. ${provider} receives the audio itself, not just a transcript of it.`,
+    `The resulting transcript is then treated as part of the conversation: it may be sent to ${input.aiProvider} with the message text, and it may be quoted in the report.`,
+  ];
+}
+
 function mediaScopeLines(included: ReadonlySet<ConsentDataType>): string[] {
   const lines: string[] = [];
 
@@ -159,7 +204,8 @@ export function buildConsentDocument(input: ConsentDocumentInput): ConsentDocume
         body: [
           `Selected parts of the conversation are processed by an AI system operated by ${input.aiProvider} in order to produce the written commentary.`,
           `${input.aiProvider} receives the message text of the selected excerpts. It does not receive your Telegram account details. Participant names are replaced with neutral labels before anything is sent, although names written inside the messages themselves are included as written.`,
-          `${input.aiProvider}'s own terms govern what they do with the data they receive. This application does not train any model on your conversation.`,
+          ...audioProcessorLines(included, input),
+          `Each provider's own terms govern what they do with the data they receive. This application does not train any model on your conversation.`,
         ],
       },
       {

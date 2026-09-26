@@ -38,6 +38,15 @@ function parseTaskModels(raw: string | undefined): Readonly<Record<string, strin
   return Object.freeze(out);
 }
 
+/** Comma-separated list, trimmed, with empties dropped. */
+function csv(raw: string | undefined, fallback: readonly string[]): readonly string[] {
+  const parsed = (raw ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  return parsed.length > 0 ? Object.freeze(parsed) : Object.freeze([...fallback]);
+}
+
 function effort(raw: string | undefined, fallback: EffortLevel): EffortLevel {
   return (EFFORT_LEVELS as readonly string[]).includes(raw ?? "")
     ? (raw as EffortLevel)
@@ -129,6 +138,14 @@ export interface ServerConfig {
     validForDays: number;
     /** Shown on the consent page and in the document. */
     aiProviderName: string;
+    /**
+     * Named in the consent document as the processor of voice messages.
+     *
+     * A second processor, receiving audio rather than text, so it is disclosed
+     * separately - a participant agreeing to have their words read has not
+     * thereby agreed to have their voice sent somewhere else.
+     */
+    transcriptionProviderName: string;
     /** Absolute base used to build consent links. */
     appUrl: string;
   };
@@ -143,6 +160,14 @@ export interface ServerConfig {
       provider: string;
       apiKey: string;
       baseUrl: string;
+      /**
+       * Ordered model fallback list sent on every transcript request.
+       *
+       * Ordered, not parallel: the first model that is available produces the
+       * transcript. It has to be sent explicitly - omitting it does not mean
+       * "the newest model", it means the API applies its own older default.
+       */
+      speechModels: readonly string[];
       /** Poll interval and ceiling for the provider's async job. */
       pollIntervalMs: number;
       pollTimeoutMs: number;
@@ -259,14 +284,24 @@ export function serverConfig(): ServerConfig {
     consent: {
       validForDays: num(process.env.CONSENT_VALID_DAYS, 14, 1, 365),
       aiProviderName: process.env.AI_PROVIDER_NAME?.trim() || "Anthropic (Claude)",
+      transcriptionProviderName:
+        process.env.TRANSCRIPTION_PROVIDER_NAME?.trim() || "AssemblyAI",
       appUrl: (process.env.APP_URL?.trim() || "http://localhost:3000").replace(/\/+$/, ""),
     },
     media: {
       transcription: {
         provider: process.env.TRANSCRIPTION_PROVIDER?.trim() || "assemblyai",
         apiKey: process.env.ASSEMBLYAI_API_KEY?.trim() ?? "",
+        // EU by default. The audio is private conversation between people who
+        // are mostly in the EU, and the consent document names where it goes,
+        // so the residency is part of what was disclosed rather than a
+        // deployment detail. Override for a US deployment.
         baseUrl:
-          process.env.ASSEMBLYAI_BASE_URL?.trim() || "https://api.assemblyai.com",
+          process.env.ASSEMBLYAI_BASE_URL?.trim() || "https://api.eu.assemblyai.com",
+        speechModels: csv(
+          process.env.ASSEMBLYAI_SPEECH_MODELS,
+          ["universal-3-5-pro", "universal-2"],
+        ),
         pollIntervalMs: num(process.env.TRANSCRIPTION_POLL_INTERVAL_MS, 3_000, 500, 60_000),
         pollTimeoutMs: num(process.env.TRANSCRIPTION_POLL_TIMEOUT_MS, 300_000, 10_000, 1_800_000),
         maxAttempts: num(process.env.TRANSCRIPTION_MAX_ATTEMPTS, 3, 1, 6),

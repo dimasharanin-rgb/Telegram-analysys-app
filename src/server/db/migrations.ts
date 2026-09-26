@@ -273,4 +273,16 @@ ALTER TABLE usage_records ADD COLUMN ok INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE usage_records ADD COLUMN media_kind TEXT;
 `,
   },
+  {
+    id: "0004_consent_transcription_provider",
+    sql: `
+-- Who was named as the transcription processor when this consent was given.
+--
+-- Recorded rather than read from configuration at render time: the document has
+-- to reproduce what the participant actually saw, and configuration can change
+-- afterwards. NULL for consents taken before voice messages were transcribed at
+-- all, which is correct - nobody was named to them because nothing was sent.
+ALTER TABLE consent_requests ADD COLUMN transcription_provider TEXT;
+`,
+  },
 ];

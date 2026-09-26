@@ -37,6 +37,11 @@ export async function GET(_request: Request, context: Context): Promise<Response
       dataTypes: request.dataTypes,
       purpose: request.purpose,
       aiProvider: request.aiProvider,
+      // From the record, not from configuration: the PDF is the audit copy of
+      // what this participant was shown.
+      ...(request.transcriptionProvider !== null
+        ? { transcriptionProvider: request.transcriptionProvider }
+        : {}),
       expiresAt: request.expiresAt,
       status: request.status,
       createdAt: request.createdAt,

@@ -36,6 +36,8 @@ export interface ConsentRequestRecord {
   dataTypes: ConsentDataType[];
   purpose: string;
   aiProvider: string;
+  /** Who was named as the transcription processor, if anyone was. */
+  transcriptionProvider: string | null;
   documentVersion: string;
   status: ConsentStatus;
   createdAt: string;
@@ -64,6 +66,7 @@ interface ConsentRow {
   data_types: string;
   purpose: string;
   ai_provider: string;
+  transcription_provider: string | null;
   document_version: string;
   status: string;
   created_at: string;
@@ -96,6 +99,7 @@ function toRecord(row: ConsentRow): ConsentRequestRecord {
     dataTypes: JSON.parse(row.data_types) as ConsentDataType[],
     purpose: row.purpose,
     aiProvider: row.ai_provider,
+    transcriptionProvider: row.transcription_provider,
     documentVersion: row.document_version,
     status: effectiveStatus(row.status as ConsentStatus, row.expires_at),
     createdAt: row.created_at,
@@ -125,6 +129,8 @@ export interface CreateConsentInput {
   dataTypes: ConsentDataType[];
   purpose: string;
   aiProvider: string;
+  /** Named as the transcription processor, when audio was in scope. */
+  transcriptionProvider?: string | null;
   documentVersion: string;
   expiresAt: string;
 }
@@ -145,9 +151,9 @@ export function createConsentRequest(input: CreateConsentInput): CreatedConsent 
     db.prepare(
       `INSERT INTO consent_requests
          (id, owner_id, conversation_id, participant_id, requested_by_label,
-          token_hash, data_types, purpose, ai_provider, document_version,
-          status, created_at, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
+          token_hash, data_types, purpose, ai_provider, transcription_provider,
+          document_version, status, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
     ).run(
       id,
       input.ownerId,
@@ -158,6 +164,7 @@ export function createConsentRequest(input: CreateConsentInput): CreatedConsent 
       JSON.stringify(input.dataTypes),
       input.purpose,
       input.aiProvider,
+      input.transcriptionProvider ?? null,
       input.documentVersion,
       at,
       input.expiresAt,

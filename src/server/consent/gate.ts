@@ -11,7 +11,10 @@
  */
 
 import type { ConsentDataType, ConsentStatus } from "@/lib/consent/state";
-import { versionDisclosesMedia } from "@/lib/consent/document";
+import {
+  versionDisclosesAudio,
+  versionDisclosesImages,
+} from "@/lib/consent/document";
 import { listConsentForConversation } from "@/server/repositories/consent";
 import { listParticipants } from "@/server/repositories/conversations";
 import type { ParticipantRecord } from "@/server/repositories/conversations";
@@ -150,13 +153,17 @@ export function evaluateConsentGate(conversationId: string): ConsentGateResult {
       const record = requests.find((entry) => entry.id === requirement.consentRequestId);
       if (record === undefined) return [];
 
-      // A consent given under a document that promised attachments were never
-      // opened does not authorise opening them, whatever its stored data types
-      // say. The document is what the participant relied on.
-      if (!versionDisclosesMedia(record.documentVersion)) {
-        return record.dataTypes.filter((type) => type === "TEXT");
-      }
-      return record.dataTypes;
+      // A consent authorises a content type only if the document the
+      // participant actually read described what happens to it. Checked per
+      // type, because images and audio were disclosed in different versions -
+      // a 1.1 consent covers photographs but not the sending of someone's
+      // recorded voice to a transcription service that 1.1 did not name.
+      const version = record.documentVersion;
+      return record.dataTypes.filter((type) => {
+        if (type === "IMAGES") return versionDisclosesImages(version);
+        if (type === "AUDIO") return versionDisclosesAudio(version);
+        return true;
+      });
     });
 
   const consentedDataTypes = intersectDataTypes(grantedByRequired);
