@@ -145,6 +145,7 @@ export function AnalysisView({ jobId }: { jobId: string }) {
             <ConsentPanel
               conversationId={detail.job.conversationId}
               gate={detail.gate}
+              dataTypes={detail.dataTypesRequired}
               onChanged={onGateChanged}
             />
             <p className="text-xs leading-relaxed text-faint">

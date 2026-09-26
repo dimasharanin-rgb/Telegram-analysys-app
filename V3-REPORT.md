@@ -334,6 +334,24 @@ build that is not present, while the full Chromium beside it works.
 
 ---
 
+## 10a. Turning media analysis on
+
+Four things gate it, and all four must be true. They were not all reachable in
+the first V3 build — the consent step had no wire at all.
+
+| Gate | How to open it |
+|---|---|
+| The folder picker in the UI | `NEXT_PUBLIC_MEDIA_ENABLED=1` |
+| The Multimodal product | the same flag |
+| Consent covering images/audio | automatic — derived from what was uploaded |
+| A provider that can read it | `MODERATION_PROVIDER` for images, `ASSEMBLYAI_API_KEY` for voice |
+
+With the flag off, the folder picker is hidden and the Multimodal product is not
+offered, which is the honest state: nothing could process a folder if one were
+selected.
+
+---
+
 ## 11. Limitations, stated plainly
 
 1. **No moderation provider is configured by default, so no image is
@@ -379,14 +397,15 @@ build that is not present, while the full Chromium beside it works.
 9. **The `mediaUsage` estimate is recorded, not shown.** Job creation returns
    it and logs it; no screen displays it yet.
 
-10. **Media consent is never requested by default.** `DEFAULT_REQUESTED_DATA_TYPES`
-    is text only, so an analysis that wants images or voice messages has to ask
-    for them explicitly when creating the consent request. Deliberate — asking
-    every participant to authorise having their photographs examined and their
-    voice transcribed, on the chance the analysis might use them, over-asks and
-    trains people to skim the form. But it does mean the media pipeline stays
-    inert until a caller passes the wider set, and nothing in the UI does that
-    yet.
+10. **Media consent is requested from the media plan, not from the product.**
+    A consent request covers text plus whichever of images and audio the job
+    actually has files for, derived from `media_assets`. A chat with no voice
+    messages never asks anyone to authorise voice transcription. The consent
+    panel states the scope in words before the link is sent.
+
+    This was originally shipped broken: `requestConsent` took no data types, so
+    every request asked for text only and the gateway correctly refused every
+    attachment. The media pipeline could not run at all. Fixed.
 
 11. **The AssemblyAI parameters are unverified against live docs.** Egress to
     every AssemblyAI host is blocked in the build environment, including

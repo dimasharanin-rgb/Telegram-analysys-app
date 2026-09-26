@@ -14,6 +14,12 @@ import { ErrorState } from "@/components/ErrorState";
 export interface ConsentPanelProps {
   conversationId: string;
   gate: ConsentGate;
+  /**
+   * What this analysis needs authorising. Comes from the job's own media plan,
+   * so a chat with voice messages asks about voice messages and a text-only
+   * one does not.
+   */
+  dataTypes: readonly string[];
   onChanged: (gate: ConsentGate) => void;
 }
 
@@ -24,7 +30,12 @@ export interface ConsentPanelProps {
  * other person is up to them - the application does not send messages on
  * anyone's behalf, and does not ask for their contact details to do so.
  */
-export function ConsentPanel({ conversationId, gate, onChanged }: ConsentPanelProps) {
+export function ConsentPanel({
+  conversationId,
+  gate,
+  dataTypes,
+  onChanged,
+}: ConsentPanelProps) {
   const [links, setLinks] = React.useState<Record<string, string>>({});
   const [busy, setBusy] = React.useState<string | null>(null);
   const [error, setError] = React.useState<UserFacingError | null>(null);
@@ -34,7 +45,7 @@ export function ConsentPanel({ conversationId, gate, onChanged }: ConsentPanelPr
     setBusy(participantId);
     setError(null);
     try {
-      const response = await api.requestConsent(conversationId, participantId);
+      const response = await api.requestConsent(conversationId, participantId, dataTypes);
       setLinks((current) => ({ ...current, [participantId]: response.url }));
       onChanged(response.gate);
     } catch (thrown) {
@@ -67,10 +78,20 @@ export function ConsentPanel({ conversationId, gate, onChanged }: ConsentPanelPr
           Participant consent
         </SectionTitle>
 
-        <p className="mb-5 text-sm leading-relaxed text-muted">
+        <p className="mb-3 text-sm leading-relaxed text-muted">
           A conversation belongs to everyone in it. Before it is analysed, each other
           participant is asked whether they agree — with a link of their own, which
           they can also use to withdraw later.
+        </p>
+
+        {/*
+          What the link will ask for, before it is sent. Someone forwarding a
+          consent request should know whether they are asking about words, or
+          about their photographs and recorded voice - those are different
+          things to ask of a person.
+        */}
+        <p className="mb-5 text-sm leading-relaxed text-ink-soft">
+          This request covers <strong>{describeScope(dataTypes)}</strong>.
         </p>
 
         {error ? (
@@ -171,4 +192,21 @@ export function ConsentPanel({ conversationId, gate, onChanged }: ConsentPanelPr
       </CardBody>
     </Card>
   );
+}
+
+/**
+ * The content types a request covers, in words rather than labels.
+ *
+ * Reads as a sentence fragment because it sits inside one, and names voice
+ * messages and photographs rather than "AUDIO" and "IMAGES" - the panel is for
+ * the person doing the asking, not for the schema.
+ */
+function describeScope(dataTypes: readonly string[]): string {
+  const parts: string[] = ["the text of the conversation"];
+  if (dataTypes.includes("IMAGES")) parts.push("photos and files that were sent");
+  if (dataTypes.includes("AUDIO")) parts.push("voice messages, which are transcribed");
+
+  if (parts.length === 1) return parts[0]!;
+  if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
+  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
 }

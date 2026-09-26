@@ -20,7 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetServerConfigCache } from "@/lib/config";
 import { MediaClassification, WithheldReason } from "@/lib/media/classification";
 import { TranscriptionStatus } from "@/lib/model/event";
-import { planMediaFor } from "@/server/media/plan";
+import { dataTypesRequiredBy, planMediaFor } from "@/server/media/plan";
 import { processJobMedia } from "@/server/media/process";
 import { storageKeyFor, writeMedia } from "@/server/media/storage";
 import {
@@ -30,6 +30,9 @@ import {
 } from "@/server/repositories/media";
 import type { DeclaredAttachment } from "@/lib/api/schemas";
 import { seedConversation, withTestDatabase } from "./support/db";
+import { InternalConsentProvider } from "@/server/consent/provider";
+import { evaluateConsentGate } from "@/server/consent/gate";
+import { listParticipants } from "@/server/repositories/conversations";
 import * as registry from "@/lib/media/providers/registry";
 import type { MediaProviders } from "@/lib/media/providers/registry";
 import { createJob } from "@/server/repositories/jobs";
@@ -342,5 +345,121 @@ describe("the bytes do not outlive the analysis", () => {
     const remaining = await readdir(ownerDir, { recursive: true });
     const files = remaining.filter((entry) => typeof entry === "string" && entry.includes("/"));
     expect(files).toEqual([]);
+  });
+});
+
+/* -------------------------------------------------------------------------
+ * The consent chain
+ * ---------------------------------------------------------------------- */
+
+describe("consent asks for what the analysis actually uploaded", () => {
+  it("asks for text alone when nothing was uploaded", () => {
+    expect(dataTypesRequiredBy([])).toEqual(["TEXT"]);
+  });
+
+  it("asks for audio when there are voice messages", () => {
+    expect(dataTypesRequiredBy([{ category: "voice" }])).toContain("AUDIO");
+    expect(dataTypesRequiredBy([{ category: "audio" }])).toContain("AUDIO");
+  });
+
+  it("asks for images when there are photographs or documents", () => {
+    expect(dataTypesRequiredBy([{ category: "image" }])).toContain("IMAGES");
+    // A PDF is a file whose contents get read, and the document describes it
+    // alongside images rather than as a third category.
+    expect(dataTypesRequiredBy([{ category: "document" }])).toContain("IMAGES");
+  });
+
+  it("does not ask for audio on a chat that has only photographs", () => {
+    // The point of deriving this from the plan: a participant should not be
+    // asked to authorise voice transcription that is never going to happen.
+    expect(dataTypesRequiredBy([{ category: "image" }])).not.toContain("AUDIO");
+  });
+
+  it("carries a voice message all the way to a consent that permits it", async () => {
+    // The chain that was broken: the plan knew there was audio, but the consent
+    // request asked for text only, so the gateway correctly refused every
+    // attachment and media analysis could never happen.
+    const { ownerId, conversation } = seedConversation();
+    const job = jobFor(ownerId, conversation.id);
+
+    const plan = planMediaFor({
+      declared: [
+        {
+          messageId: "1",
+          reference: "voice_messages/audio_1.ogg",
+          kind: "AUDIO",
+          mimeType: "audio/ogg",
+          sizeBytes: OGG.byteLength,
+          durationSeconds: 12,
+        },
+      ],
+      readMessageIds: new Set(["1"]),
+      productId: "multimodal",
+      scope: { images: true, audio: true, documents: true },
+    });
+    planMedia(job.id, ownerId, plan.wanted);
+
+    const required = dataTypesRequiredBy(listMediaAssets(job.id, ownerId));
+    expect(required).toContain("AUDIO");
+
+    const provider = new InternalConsentProvider();
+    const other = listParticipants(conversation.id).find((p) => !p.isSelf)!;
+    const created = provider.createRequest({
+      ownerId,
+      conversationId: conversation.id,
+      participantId: other.id,
+      requestedByLabel: "Sam",
+      dataTypes: required,
+      purpose: "Communication analysis.",
+      aiProvider: "Anthropic (Claude)",
+      transcriptionProvider: "AssemblyAI",
+      validForDays: 14,
+    });
+    provider.decide(created.token, "ACCEPTED");
+
+    const gate = evaluateConsentGate(conversation.id);
+    expect(gate.satisfied).toBe(true);
+    expect(gate.consentedDataTypes).toContain("AUDIO");
+  });
+
+  it("records who was named as the transcription processor", () => {
+    const { ownerId, conversation } = seedConversation();
+    const provider = new InternalConsentProvider();
+    const other = listParticipants(conversation.id).find((p) => !p.isSelf)!;
+
+    const created = provider.createRequest({
+      ownerId,
+      conversationId: conversation.id,
+      participantId: other.id,
+      requestedByLabel: "Sam",
+      dataTypes: ["TEXT", "AUDIO"],
+      purpose: "Communication analysis.",
+      aiProvider: "Anthropic (Claude)",
+      transcriptionProvider: "AssemblyAI",
+      validForDays: 14,
+    });
+
+    expect(created.request.transcriptionProvider).toBe("AssemblyAI");
+  });
+
+  it("records nobody when no audio was requested", () => {
+    const { ownerId, conversation } = seedConversation();
+    const provider = new InternalConsentProvider();
+    const other = listParticipants(conversation.id).find((p) => !p.isSelf)!;
+
+    const created = provider.createRequest({
+      ownerId,
+      conversationId: conversation.id,
+      participantId: other.id,
+      requestedByLabel: "Sam",
+      dataTypes: ["TEXT"],
+      purpose: "Communication analysis.",
+      aiProvider: "Anthropic (Claude)",
+      transcriptionProvider: "AssemblyAI",
+      validForDays: 14,
+    });
+
+    // Nothing is sent, so nobody is named.
+    expect(created.request.transcriptionProvider).toBeNull();
   });
 });

@@ -29,6 +29,7 @@ import {
   type MediaUsage,
 } from "@/lib/media/policy";
 import type { PlannedAsset } from "@/server/repositories/media";
+import type { ConsentDataType } from "@/lib/consent/state";
 
 /** Content types a product may look at, from the product's own declaration. */
 export interface MediaScope {
@@ -239,3 +240,35 @@ export const PLANNABLE_KINDS: readonly MessageType[] = [
   MessageType.AUDIO,
   MessageType.FILE,
 ];
+
+/* -------------------------------------------------------------------------
+ * What consent has to cover
+ * ---------------------------------------------------------------------- */
+
+/**
+ * The content types a job's media plan actually needs authorising.
+ *
+ * Derived from the plan rather than from the product, because the plan is what
+ * will really be read. A multimodal analysis of a chat with no voice messages
+ * needs no audio consent, and asking for it anyway would have the participant
+ * authorise something that is never going to happen - which is how a consent
+ * form stops being read.
+ *
+ * TEXT is always present: there is no analysis without it.
+ */
+export function dataTypesRequiredBy(
+  assets: readonly { category: MediaCategory }[],
+): ConsentDataType[] {
+  const required: ConsentDataType[] = ["TEXT"];
+
+  // Documents ride with images: both are files whose contents get read, and the
+  // consent document describes them together.
+  if (assets.some((a) => a.category === "image" || a.category === "document")) {
+    required.push("IMAGES");
+  }
+  if (assets.some((a) => a.category === "voice" || a.category === "audio")) {
+    required.push("AUDIO");
+  }
+
+  return required;
+}

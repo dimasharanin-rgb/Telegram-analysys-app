@@ -160,6 +160,11 @@ export interface JobDetail {
   participants: { pseudonym: string; displayName: string; isSelf: boolean }[];
   usage: { module: string; inputTokens: number; outputTokens: number; costMicros: number }[];
   advice: AdviceAllowance;
+  /**
+   * What a consent request for this analysis has to cover, derived from the
+   * media uploaded for it. Always includes TEXT.
+   */
+  dataTypesRequired: string[];
 }
 
 export interface StoredStatistics {
@@ -204,14 +209,29 @@ export const api = {
   listConversations: () =>
     request<{ conversations: unknown[] }>("/api/conversations"),
 
-  requestConsent: (conversationId: string, participantId: string) =>
+  /**
+   * Asks a participant to consent.
+   *
+   * `dataTypes` is what this particular analysis needs authorising. Omitting it
+   * means text only - which is the right default for a text analysis and the
+   * wrong one for an analysis that has voice messages waiting, so the caller
+   * passes what the job actually requires.
+   */
+  requestConsent: (
+    conversationId: string,
+    participantId: string,
+    dataTypes?: readonly string[],
+  ) =>
     request<{
       consentRequest: { id: string; status: ConsentStatus; expiresAt: string };
       url: string;
       gate: ConsentGate;
     }>(`/api/conversations/${conversationId}/consent`, {
       method: "POST",
-      body: JSON.stringify({ participantId }),
+      body: JSON.stringify({
+        participantId,
+        ...(dataTypes && dataTypes.length > 0 ? { dataTypes } : {}),
+      }),
     }),
 
   createJob: (body: {

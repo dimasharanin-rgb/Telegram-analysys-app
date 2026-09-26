@@ -11,6 +11,8 @@ import { cancelJob, describeReadiness } from "@/server/analysis/job-service";
 import { errorResponse, json, withOwner } from "@/server/http";
 import { getConversation, listParticipants } from "@/server/repositories/conversations";
 import { deleteJob, listUsage } from "@/server/repositories/jobs";
+import { listMediaAssets } from "@/server/repositories/media";
+import { dataTypesRequiredBy } from "@/server/media/plan";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,6 +50,10 @@ export async function GET(request: Request, context: Context): Promise<Response>
       // What the advice page is allowed to spend, so it can say so before
       // the user clicks rather than after.
       advice: adviceAllowance(id, ownerId, readiness.job.productId),
+      // What a consent request for this analysis has to cover. Derived from the
+      // media actually uploaded for it, so the other participant is asked about
+      // their photographs and voice messages exactly when there are some.
+      dataTypesRequired: dataTypesRequiredBy(listMediaAssets(id, ownerId)),
     });
   }, { create: false })(request);
 }
