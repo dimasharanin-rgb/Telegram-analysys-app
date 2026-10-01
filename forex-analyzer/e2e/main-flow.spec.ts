@@ -84,3 +84,34 @@ test("configure account → enter trade → calculate risk → validate rules �
   await expect(page.getByText("$10,112.50").first()).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test("autonomous analysis: scan, evaluate a candidate, see AI decision, risk validation and final decision", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await useMockData(page);
+  await page.goto("/autonomous");
+  for (const pair of ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "USD/CAD"]) {
+    const box = page.getByRole("group", { name: "Pairs" }).getByLabel(pair);
+    if (!(await box.isChecked())) await box.check();
+  }
+  for (const tf of ["M5", "M15", "H1"]) {
+    const box = page.getByRole("group", { name: "Timeframes" }).getByLabel(tf);
+    if (!(await box.isChecked())) await box.check();
+  }
+  await page.getByRole("button", { name: "Scan", exact: true }).click();
+  await expect(page.getByTestId("scan-summary")).toBeVisible({ timeout: 30_000 });
+
+  const cards = page.getByTestId("candidate");
+  if ((await cards.count()) === 0) {
+    await expect(page.getByText(/No candidates/)).toBeVisible();
+  } else {
+    await cards.first().getByRole("button", { name: "Analyze candidate" }).click();
+    const result = cards.first().getByTestId("analysis-result");
+    await expect(result).toBeVisible({ timeout: 30_000 });
+    await expect(result.getByText("AI decision")).toBeVisible();
+    await expect(result.getByText("Final analysis decision")).toBeVisible();
+    await expect(result.getByText(/No order has been or will be placed/)).toBeVisible();
+    await expect(page.getByRole("table", { name: "Decision log" })).toBeVisible();
+  }
+  expect(errors).toEqual([]);
+});

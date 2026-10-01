@@ -81,6 +81,8 @@ export interface SymbolScanStatus {
 
 export interface ScanResult {
   scannedAt: number;
+  /** Per symbol: when its data was taken and the price at that moment. */
+  snapshots: Record<string, import("./autonomous").CandidateSnapshotMeta>;
   timeframes: Timeframe[];
   symbols: SymbolScanStatus[];
   /** Unranked. An empty list is a normal result. */

@@ -11,6 +11,7 @@ import { Notice } from "@/ui/components/ui/Notice";
 const NAV = [
   { to: "/", label: "Dashboard", glyph: "▦" },
   { to: "/analyze", label: "Trade Analyzer", glyph: "◎" },
+  { to: "/autonomous", label: "Autonomous Analysis", glyph: "◇" },
   { to: "/journal", label: "Journal", glyph: "≡" },
   { to: "/settings", label: "Settings", glyph: "⚙" },
 ] as const;
@@ -18,6 +19,7 @@ const NAV = [
 const TITLES: Record<string, string> = {
   "/": "Dashboard",
   "/analyze": "Trade Analyzer",
+  "/autonomous": "Autonomous Analysis",
   "/journal": "Journal",
   "/settings": "Settings",
 };

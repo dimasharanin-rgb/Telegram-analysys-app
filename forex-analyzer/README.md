@@ -222,6 +222,36 @@ Twelve Data → MarketDataProvider → normalised candles (cached)
 - **The Trade Analyzer** shows the same facts read-only in its **Market context** panel. Manual analyses use the same
   engine.
 
+## Autonomous analysis (paper only)
+
+The **Autonomous Analysis** page runs a scan, then lets you send one candidate at a time for evaluation:
+
+```
+Market data → setup detector → candidate → Claude evaluation (TRADE or NO_TRADE)
+  → deterministic risk validation (same engine as manual trades) → final analysis decision
+```
+
+- **Claude proposes, the risk engine decides.** Claude's entry, stop and target go through `evaluateRisk`. The app
+  sizes the position, recalculates risk and R:R, and checks that the direction matches the candidate and that the entry
+  is within 3 ATR of the market. Any blocking check failing makes the final decision NO TRADE, whatever Claude said.
+  Claude's own risk figures are only compared against the calculated ones and reported as discrepancies.
+- **Structured, time-bounded input.** The payload (`src/autonomous/payload.ts`) carries the candidate, per-timeframe
+  technical facts, the price, the account limits and the instrument spec, and no raw candles. It is refused if anything
+  in it is dated after the snapshot's `asOf`.
+- **Strict output.** The answer must match `candidateEvaluationSchema` (JSON schema sent to the API, re-validated with
+  zod). Malformed output, timeouts and API errors become a logged NO TRADE.
+- **Stale data is refused** before Claude is called.
+- **Prompt version** `autonomous-analysis-v1` (`src/autonomous/prompts/`). It is stored with every decision, and is
+  part of the cache key (payload + prompt version + model), so identical inputs reuse the earlier result.
+- **Decision log.** Every result, TRADE and NO TRADE alike, goes into the `decisions` table.
+  `GET /api/autonomous/decisions` returns it.
+- **Endpoints:** `POST /api/scan`, then `POST /api/autonomous/analyze` with `{"candidateId": "..."}`. Only ids from a
+  recent server-side scan are accepted, so a client cannot submit its own candidate.
+- **Without `ANTHROPIC_API_KEY`** a rule-based mock evaluator is used, labelled MOCK AI.
+
+There is no background scanning, no backtesting and no broker connection. A TRADE PROPOSAL is an analysis result, not
+an order.
+
 ## Journal and dashboard
 
 Every analysis is saved, blocked and unavailable ones included: inputs, risk figures, verdicts, AI reasoning and a
@@ -242,6 +272,9 @@ src/
   risk/         deterministic risk engine — imports nothing from ai/                                  (pure)
   ai/           Claude client, system prompt, output schema, parser, mock analyst                      (server)
   analysis/     the pipeline that runs the layers in order                                             (server)
+  setups/       deterministic setup detector                                                         (pure)
+  scanner/      on-demand market scan                                                                 (server)
+  autonomous/   candidate evaluation: prompt, payload, schema, Claude/mock evaluator, risk validation  (server)
   journal/      SQLite, journal repository, statistics                                                 (server)
   server/       Express API, SSE price stream, config, settings                                        (server)
   shared/       types, instrument specs, schemas, formatting                                           (pure, both sides)

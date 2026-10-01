@@ -52,6 +52,42 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       CREATE INDEX journal_status ON journal (status);
     `,
   },
+  {
+    version: 2,
+    sql: `
+      -- Every autonomous candidate analysis: TRADE and NO_TRADE alike, so rejected setups are not lost.
+      CREATE TABLE decisions (
+        id TEXT PRIMARY KEY,
+        analyzed_at TEXT NOT NULL,
+        candidate_id TEXT NOT NULL,
+        input_hash TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        timeframe TEXT NOT NULL,
+        setup_type TEXT NOT NULL,
+        candidate_direction TEXT NOT NULL,
+        snapshot_as_of TEXT NOT NULL,
+        snapshot_source TEXT NOT NULL,
+        prompt_version TEXT NOT NULL,
+        model TEXT NOT NULL,
+        served_by TEXT,
+        ai_decision TEXT CHECK (ai_decision IN ('TRADE', 'NO_TRADE')),
+        setup_quality INTEGER,
+        proposed_entry REAL,
+        proposed_stop_loss REAL,
+        proposed_take_profit REAL,
+        risk_passed INTEGER,
+        risk_percent REAL,
+        risk_amount REAL,
+        risk_reward REAL,
+        final_decision TEXT NOT NULL CHECK (final_decision IN ('TRADE', 'NO_TRADE')),
+        error_code TEXT,
+        candidate_json TEXT NOT NULL,
+        result_json TEXT NOT NULL
+      );
+      CREATE INDEX decisions_analyzed_at ON decisions (analyzed_at);
+      CREATE INDEX decisions_input_hash ON decisions (input_hash);
+    `,
+  },
 ];
 
 /** Applies migrations newer than the recorded version, each in its own transaction. */

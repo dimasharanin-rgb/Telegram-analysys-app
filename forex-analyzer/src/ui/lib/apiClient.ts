@@ -1,5 +1,7 @@
 import type { AnalysisResult, AnalysisSnapshot } from "@/shared/types/analysis";
 import type { TimeframeAnalysis } from "@/shared/types/technical";
+import type { ScanResult } from "@/shared/types/setup";
+import type { AutonomousAnalysisResult } from "@/shared/types/autonomous";
 import type { DashboardData } from "@/shared/types/dashboard";
 import type { JournalEntry, JournalFilters, JournalSummary, OutcomeUpdate } from "@/shared/types/journal";
 import type { Candle, CandleCacheInfo, Instrument, MarketDataMetadata, MarketDataSnapshot, Quote, StreamStatus } from "@/shared/types/market";
@@ -71,6 +73,13 @@ export const api = {
     request<{ symbol: string; asOf: number; metadata: AnalysisSnapshot["metadata"]; stale: boolean; staleReasons: string[]; timeframes: TimeframeAnalysis[] }>(
       "GET",
       `/market/context${query({ symbol })}`,
+    ),
+  scan: (body: { symbols: string[]; timeframes: Timeframe[] }) => request<ScanResult>("POST", "/scan", body),
+  analyzeCandidate: (candidateId: string) => request<AutonomousAnalysisResult>("POST", "/autonomous/analyze", { candidateId }),
+  decisions: (limit = 50) =>
+    request<{ counts: { total: number; trade: number; noTrade: number }; decisions: AutonomousAnalysisResult[]; evaluator: { provider: string; model: string } }>(
+      "GET",
+      `/autonomous/decisions${query({ limit })}`,
     ),
   devUsage: () => request<{ usage: UsageSnapshot; stream: StreamStatus; dataMode: string }>("GET", "/dev/usage"),
   journal: (filters: JournalFilters = {}) =>

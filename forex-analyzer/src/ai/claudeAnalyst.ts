@@ -93,7 +93,7 @@ export class ClaudeAnalyst implements TradeAnalyst {
   }
 }
 
-function toAiError(error: unknown): AiError {
+export function toAiError(error: unknown): AiError {
   if (error instanceof AiError) return error;
   if (error instanceof Anthropic.APIConnectionTimeoutError) {
     return new AiError("TIMEOUT", "Claude did not respond in time.");

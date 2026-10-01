@@ -5,6 +5,7 @@ import { AppShell } from "@/ui/components/layout/AppShell";
 import { AppDataProvider } from "@/ui/hooks/useAppData";
 import { LiveFeedProvider } from "@/ui/hooks/useLiveFeed";
 import { AnalyzerPage } from "@/ui/pages/AnalyzerPage";
+import { AutonomousPage } from "@/ui/pages/AutonomousPage";
 import { DashboardPage } from "@/ui/pages/DashboardPage";
 import { JournalPage } from "@/ui/pages/JournalPage";
 import { SettingsPage } from "@/ui/pages/SettingsPage";
@@ -19,6 +20,7 @@ createRoot(document.getElementById("root")!).render(
           <Route element={<AppShell />}>
             <Route index element={<DashboardPage />} />
             <Route path="analyze" element={<AnalyzerPage />} />
+            <Route path="autonomous" element={<AutonomousPage />} />
             <Route path="journal" element={<JournalPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<DashboardPage />} />

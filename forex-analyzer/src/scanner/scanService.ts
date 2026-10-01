@@ -43,6 +43,7 @@ export async function scanMarket(request: ScanRequest, deps: ScanDeps): Promise<
   const timeframes = timeframesFor(request.timeframes).filter((tf) => deps.market.supportsTimeframe(tf));
   const symbols: SymbolScanStatus[] = [];
   const candidates: SetupCandidate[] = [];
+  const snapshots: ScanResult["snapshots"] = {};
 
   for (const raw of request.symbols) {
     const symbol = getInstrument(raw)?.symbol ?? raw;
@@ -54,7 +55,9 @@ export async function scanMarket(request: ScanRequest, deps: ScanDeps): Promise<
         const problem = candleProblem(data.candles[tf] ?? [], tf, deps.now(), MIN_CANDLES);
         if (problem) throw new MarketDataError("NO_DATA", problem);
       }
-      const found = detectSetups(buildAnalysisSnapshot(data, deps.now()), config);
+      const snap = buildAnalysisSnapshot(data, deps.now());
+      snapshots[symbol] = { ...snap.metadata, asOf: snap.asOf, price: snap.price };
+      const found = detectSetups(snap, config);
       candidates.push(...found);
       symbols.push({ symbol, status: "OK", candidates: found.length });
     } catch (error) {
@@ -62,5 +65,5 @@ export async function scanMarket(request: ScanRequest, deps: ScanDeps): Promise<
       symbols.push({ symbol, status: "UNAVAILABLE", reason: error.message, candidates: 0 });
     }
   }
-  return { scannedAt: deps.now(), timeframes: request.timeframes, symbols, candidates };
+  return { scannedAt: deps.now(), snapshots, timeframes: request.timeframes, symbols, candidates };
 }

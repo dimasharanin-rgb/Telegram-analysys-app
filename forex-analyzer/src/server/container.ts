@@ -10,6 +10,9 @@ import { TwelveDataProvider } from "@/data/twelvedata/provider";
 import { UsageTracker } from "@/data/usage";
 import { openDatabase, type Db } from "@/journal/db";
 import { JournalRepository } from "@/journal/journalRepository";
+import { DecisionLog } from "@/journal/decisionLog";
+import { CandidateStore } from "@/autonomous/candidateStore";
+import { ClaudeCandidateEvaluator, MockCandidateEvaluator, type CandidateEvaluator } from "@/autonomous/evaluator";
 import { deriveAccountState } from "@/risk";
 import type { AccountState } from "@/shared/types/risk";
 import type { AccountSettings } from "@/shared/types/settings";
@@ -23,6 +26,9 @@ export interface Services {
   journal: JournalRepository;
   market: MarketDataService;
   analyst: TradeAnalyst;
+  evaluator: CandidateEvaluator;
+  decisions: DecisionLog;
+  candidates: CandidateStore;
   usage: UsageTracker;
   now(): Date;
   accountState(settings: AccountSettings, now: Date): AccountState;
@@ -35,6 +41,7 @@ export interface ServiceOverrides {
   db?: Db;
   market?: MarketDataService;
   analyst?: TradeAnalyst;
+  evaluator?: CandidateEvaluator;
   now?: () => Date;
   fetchImpl?: typeof fetch;
 }
@@ -88,6 +95,25 @@ export function createServices(config: AppConfig, overrides: ServiceOverrides = 
 
   const accountState = (s: AccountSettings, at: Date) => deriveAccountState(s, journal.accountRecords(), at);
 
+  const baseEvaluator =
+    overrides.evaluator ??
+    (config.anthropic.apiKey
+      ? new ClaudeCandidateEvaluator(config.anthropic.model, { apiKey: config.anthropic.apiKey, timeoutMs: config.anthropic.timeoutMs, effort: config.anthropic.effort })
+      : new MockCandidateEvaluator());
+  const evaluator: CandidateEvaluator = {
+    provider: baseEvaluator.provider,
+    model: baseEvaluator.model,
+    evaluate: async (payload) => {
+      if (baseEvaluator.provider === "anthropic") usage.claudeRequest();
+      try {
+        return await baseEvaluator.evaluate(payload);
+      } catch (error) {
+        if (baseEvaluator.provider === "anthropic") usage.claudeError(error instanceof Error ? error.message : String(error));
+        throw error;
+      }
+    },
+  };
+
   return {
     config,
     db,
@@ -95,6 +121,9 @@ export function createServices(config: AppConfig, overrides: ServiceOverrides = 
     journal,
     market,
     analyst,
+    evaluator,
+    decisions: new DecisionLog(db),
+    candidates: new CandidateStore(30 * 60_000, 500, () => now().getTime()),
     usage,
     now,
     accountState,

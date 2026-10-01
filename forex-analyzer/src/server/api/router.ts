@@ -9,6 +9,7 @@ import { TIMEFRAMES } from "@/shared/types/trade";
 import { SETUP_TYPES } from "@/shared/types/setup";
 import { buildAnalysisSnapshot } from "@/technical/snapshot";
 import { scanMarket } from "@/scanner/scanService";
+import { analyzeCandidate } from "@/autonomous/service";
 import { setupConfig } from "@/setups";
 import { normalizeSymbol, getInstrument } from "@/shared/instruments";
 import { journalStats, scoreVsOutcome } from "@/journal/stats";
@@ -180,7 +181,35 @@ export function createApiRouter(services: Services): Router {
       { symbols, timeframes: body.timeframes, config: setupConfig({ ...body.config, allowedTimeframes: body.timeframes }) },
       { market: services.market, now: () => services.now().getTime(), maxAgeSeconds: settings.freshnessThresholdSeconds },
     );
+    services.candidates.add(result.candidates, result.snapshots);
     res.json(result);
+  });
+
+  /**
+   * Evaluates one scanned candidate: Claude (or the mock) proposes TRADE or
+   * NO_TRADE, and any proposal is re-checked by the deterministic risk engine.
+   * Only the candidate id is accepted; the market facts come from the server's
+   * own scan. The result is an analysis, never an order.
+   */
+  router.post("/autonomous/analyze", async (req, res) => {
+    const { candidateId } = parseInput(z.object({ candidateId: z.string().min(1).max(200) }), req.body ?? {});
+    const stored = services.candidates.get(candidateId);
+    if (!stored) throw new HttpError(404, "Candidate not found or expired. Run the scan again.");
+    const settings = services.settings.get();
+    res.json(
+      await analyzeCandidate(stored, {
+        evaluator: services.evaluator,
+        analysis: services.analysisDeps(),
+        log: services.decisions,
+        now: () => services.now().getTime(),
+        freshnessSeconds: settings.freshnessThresholdSeconds,
+      }),
+    );
+  });
+
+  router.get("/autonomous/decisions", (req, res) => {
+    const { limit } = parseInput(z.object({ limit: z.coerce.number().int().min(1).max(500).default(50) }), req.query);
+    res.json({ counts: services.decisions.counts(), decisions: services.decisions.recent(limit), evaluator: { provider: services.evaluator.provider, model: services.evaluator.model } });
   });
 
   router.get("/dev/usage", (_req, res) => {

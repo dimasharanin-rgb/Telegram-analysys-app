@@ -226,3 +226,48 @@ describe("deterministic scan endpoint", () => {
     }
   });
 });
+
+describe("autonomous analysis endpoints", () => {
+  it("scan → analyze by candidate id → decision log; never an order", async () => {
+    const NOW3 = new Date("2026-09-30T11:00:00Z");
+    const m = new MockMarketDataProvider({ now: () => NOW3 });
+    const services = createServices(loadConfig([], {}), {
+      db: openDatabase(":memory:"),
+      analyst: new MockAnalyst(),
+      now: () => NOW3,
+      market: new MarketDataService({ live: null, liveUnavailableReason: "test", mock: { provider: m, stream: new MockPriceStream(m) }, mode: "MOCK", usage: new UsageTracker(), now: () => NOW3.getTime() }),
+    });
+    services.settings.save({ ...DEFAULT_SETTINGS, dataMode: "MOCK", tradingSessions: [] });
+    const srv = createApp(services).listen(0);
+    await new Promise<void>((r) => srv.once("listening", () => r()));
+    const url = `http://127.0.0.1:${(srv.address() as AddressInfo).port}/api`;
+    const post = (path: string, body: unknown) => fetch(url + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    try {
+      const scan = await (await post("/scan", { timeframes: ["M5", "M15", "H1"] })).json();
+      expect(scan.candidates.length).toBeGreaterThan(0);
+      const analyses = [];
+      for (const c of scan.candidates.slice(0, 4)) {
+        const res = await post("/autonomous/analyze", { candidateId: c.id });
+        expect(res.status).toBe(200);
+        analyses.push(await res.json());
+      }
+      for (const a of analyses) {
+        expect(["TRADE", "NO_TRADE"]).toContain(a.finalDecision);
+        if (a.finalDecision === "TRADE") expect(a.riskValidation.passed).toBe(true);
+        if (a.riskValidation && !a.riskValidation.passed) expect(a.finalDecision).toBe("NO_TRADE");
+      }
+      const log = await (await fetch(url + "/autonomous/decisions")).json();
+      expect(log.counts.total).toBe(analyses.length);
+      expect(log.evaluator.provider).toBe("mock");
+
+      expect((await post("/autonomous/analyze", { candidateId: "EUR/USD:M15:CONTINUATION:LONG:0" })).status).toBe(404);
+      // The client cannot hand in its own market facts: only an id is accepted.
+      expect((await post("/autonomous/analyze", { candidate: scan.candidates[0] })).status).toBe(400);
+      for (const path of ["/order", "/orders", "/execute", "/broker", "/positions"]) {
+        expect((await post(path, {})).status).toBe(404);
+      }
+    } finally {
+      srv.close();
+    }
+  });
+});
