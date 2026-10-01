@@ -19,4 +19,4 @@ blob-report/
 playwright/.cache/
 
 # Local database and dev secret
-data/
+/data/

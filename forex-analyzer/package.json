@@ -1,0 +1,48 @@
+{
+  "name": "forex-trade-analyzer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Decision-support tool that checks a proposed Forex trade against funded-account rules, analyzes market data, and asks Claude for a structured assessment. It never executes trades.",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false src/server/index.ts",
+    "build": "vite build",
+    "start": "tsx src/server/index.ts --production",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "verify": "npm run typecheck && npm run test && npm run build"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "better-sqlite3": "^13.0.3",
+    "express": "^5.2.1",
+    "lightweight-charts": "^5.2.1",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router": "^7.18.4",
+    "recharts": "^3.10.1",
+    "tsx": "^4.23.15",
+    "ws": "^8.22.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.19.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/ws": "^8.18.2",
+    "@vitejs/plugin-react": "^6.1.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~5.9.3",
+    "vite": "^8.3.2",
+    "vitest": "^5.0.3"
+  }
+}
