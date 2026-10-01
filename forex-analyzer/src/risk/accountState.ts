@@ -1,7 +1,7 @@
-import type { AccountState } from "@/types/risk";
-import type { AccountSettings } from "@/types/settings";
-import { round } from "@/lib/math";
-import { dateInTimeZone } from "@/lib/time";
+import type { AccountState } from "@/shared/types/risk";
+import type { AccountSettings } from "@/shared/types/settings";
+import { round } from "@/shared/math";
+import { dateInTimeZone } from "@/shared/time";
 
 export interface ClosedTradeRecord {
   closedAt: string;
@@ -28,6 +28,7 @@ export function deriveAccountState(
       source: "MANUAL",
       initialBalance: settings.accountSize,
       balance: m.balance,
+      equity: m.equity,
       dayStartBalance: round(m.balance - m.todayRealizedPnl, 2),
       todayRealizedPnl: m.todayRealizedPnl,
       highWaterMark: Math.max(m.highWaterMark, m.balance, settings.accountSize),
@@ -51,6 +52,7 @@ export function deriveAccountState(
     source: "JOURNAL",
     initialBalance: settings.accountSize,
     balance: round(balance, 2),
+    equity: round(balance, 2),
     dayStartBalance: round(balance - todayPnl, 2),
     todayRealizedPnl: round(todayPnl, 2),
     highWaterMark: round(highWaterMark, 2),

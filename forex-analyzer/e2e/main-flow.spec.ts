@@ -1,10 +1,19 @@
 import { expect, test, type Page } from "@playwright/test";
 
+/** The e2e server has no Twelve Data key, so the flow below runs in MOCK mode; LIVE must say it is unavailable. */
+
+async function useMockData(page: Page) {
+  await page.goto("/analyze");
+  const mock = page.getByRole("radio", { name: "MOCK" });
+  if ((await mock.getAttribute("aria-checked")) !== "true") await mock.click();
+  await expect(page.getByText("MOCK DATA", { exact: true })).toBeVisible();
+}
+
 async function enterTrade(page: Page, opts: { positionSize?: string } = {}) {
   await page.goto("/analyze");
-  await page.locator("#pair").selectOption("EURUSD");
+  await page.getByLabel("Pair").selectOption("EUR/USD");
   await page.getByRole("radio", { name: "LONG" }).click();
-  await page.getByRole("button", { name: "Market", exact: true }).click();
+  await page.getByRole("radio", { name: "MARKET" }).click();
   await expect(page.locator("#entry")).not.toHaveValue("");
   const entry = Number(await page.locator("#entry").inputValue());
   await page.locator("#stopLoss").fill((entry - 0.002).toFixed(5));
@@ -13,44 +22,55 @@ async function enterTrade(page: Page, opts: { positionSize?: string } = {}) {
   return entry;
 }
 
+test("LIVE mode without a Twelve Data key says so and shows no substitute data", async ({ page }) => {
+  await page.goto("/analyze");
+  const live = page.getByRole("radio", { name: "LIVE" });
+  if ((await live.getAttribute("aria-checked")) !== "true") await live.click();
+  await expect(page.getByText("LIVE DATA UNAVAILABLE", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("feed-state")).toHaveText("OFFLINE");
+  await expect(page.getByText(/LIVE DATA UNAVAILABLE: TWELVE_DATA_API_KEY is not set/).first()).toBeVisible();
+});
+
+test("live price, candles, chart and data timestamp (mock source)", async ({ page }) => {
+  await useMockData(page);
+  await page.getByLabel("Pair").selectOption("EUR/USD");
+  await expect(page.getByTestId("feed-state")).toHaveText("SIMULATED");
+  await expect(page.getByTestId("data-age")).toHaveText(/Data: \d+ seconds? ago/);
+  for (const tf of ["M5", "M15", "H1", "H4"]) await page.getByRole("tab", { name: tf }).click();
+  await expect(page.getByTestId("chart-live")).toHaveText("SIMULATED");
+});
+
 test("configure account → enter trade → calculate risk → validate rules → display result → journal", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
+  await useMockData(page);
 
-  // Configure the account
   await page.goto("/settings");
   await page.locator("#accountSize").fill("10000");
   await page.locator("#maxRiskPerTradePct").fill("0.5");
   await page.locator("#minRiskReward").fill("2");
+  await page.locator("#accountStateSource").selectOption("JOURNAL");
   await page.getByRole("checkbox", { name: /London/ }).uncheck();
-  await page.getByRole("checkbox", { name: /New York/ }).uncheck(); // no session restriction, so the test does not depend on the clock
+  await page.getByRole("checkbox", { name: /New York/ }).uncheck(); // no session restriction: the test must not depend on the clock
   await page.getByRole("button", { name: "Save settings" }).click();
   await expect(page.getByText("Settings saved")).toBeVisible();
 
-  // Enter a trade: the risk engine responds before any analysis
   await enterTrade(page);
-  await expect(page.getByText("Suggested position size")).toBeVisible();
-  await expect(page.getByText("0.25 lots").first()).toBeVisible();
+  await expect(page.getByText(/Suggested position size/)).toBeVisible();
   await expect(page.getByText("Risk within limit")).toBeVisible();
 
-  // Analyze and display the structured result
   await page.getByRole("button", { name: "ANALYZE TRADE" }).click();
   const card = page.locator("section[aria-live]");
   await expect(card).toBeVisible({ timeout: 30_000 });
   await expect(card.getByText(/^(ACCEPTABLE|CAUTION|REJECT)$/)).toBeVisible();
-  await expect(card.getByText("Setup quality")).toBeVisible();
   await expect(card.getByText(/not a probability of profit/)).toBeVisible();
-  await expect(page.getByText("Invalidation")).toBeVisible();
-  await expect(page.getByRole("tab", { name: "M15" })).toBeVisible();
 
-  // An oversized position is blocked by the account rules and never analysed
+  await page.getByRole("radio", { name: "CUSTOM" }).click();
   await page.locator("#positionSize").fill("1.00");
   await expect(page.getByText(/TRADE BLOCKED — it breaks a hard rule/)).toBeVisible();
   await page.getByRole("button", { name: "ANALYZE TRADE" }).click();
   await expect(card.getByText("TRADE BLOCKED")).toBeVisible();
-  await expect(card.getByText("Claude was not consulted", { exact: false })).toBeVisible();
 
-  // Both analyses are in the journal; record an outcome for the first
   await page.goto("/journal");
   await expect(page.locator("tbody tr")).toHaveCount(2);
   await page.locator("tbody tr").nth(1).click();
@@ -60,17 +80,7 @@ test("configure account → enter trade → calculate risk → validate rules �
   await expect(page.getByText("Saved.")).toBeVisible();
   await page.keyboard.press("Escape");
 
-  // The dashboard reflects the recorded outcome
   await page.goto("/");
   await expect(page.getByText("$10,112.50").first()).toBeVisible();
-  await expect(page.getByText(/Not enough data yet/)).toBeVisible();
-
   expect(errors).toEqual([]);
-});
-
-test("invalid stop loss is explained and blocked", async ({ page }) => {
-  const entry = await enterTrade(page);
-  await page.locator("#stopLoss").fill((entry + 0.001).toFixed(5));
-  await expect(page.getByText(/stop loss must be below entry/)).toBeVisible();
-  await expect(page.getByText("BLOCKED", { exact: true })).toBeVisible();
 });

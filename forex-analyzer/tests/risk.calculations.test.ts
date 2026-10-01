@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { calculateRR, calculateRisk, resolveConversion } from "@/risk";
-import { getInstrument } from "@/lib/instruments";
+import { getInstrument } from "@/shared/instruments";
 import { quotes, risk, trade } from "./helpers";
 
-const EURUSD = getInstrument("EURUSD")!;
-const USDJPY = getInstrument("USDJPY")!;
+const EURUSD = getInstrument("EUR/USD")!;
+const USDJPY = getInstrument("USD/JPY")!;
 
 describe("calculateRR", () => {
   it("LONG: risk = entry - SL, reward = TP - entry", () => {
@@ -87,8 +87,8 @@ describe("calculateRisk", () => {
   });
 
   it("JPY cross (EURJPY, USD account) converts through USDJPY", () => {
-    const c = risk({ pair: "EURJPY", entry: 160, stopLoss: 159.7, takeProfit: 160.6 }, { settings: { allowedPairs: ["EURJPY"] }, quotes: { USDJPY: 150 } }).calculation!;
-    expect(c.conversion).toEqual({ kind: "CROSS_RATE", via: "USDJPY", rate: 1 / 150 });
+    const c = risk({ pair: "EURJPY", entry: 160, stopLoss: 159.7, takeProfit: 160.6 }, { settings: { allowedPairs: ["EURJPY"] }, quotes: { "USD/JPY": 150 } }).calculation!;
+    expect(c.conversion).toEqual({ kind: "CROSS_RATE", via: "USD/JPY", rate: 1 / 150 });
     expect(c.riskPips).toBe(30);
     expect(c.suggestedPositionSize).toBe(0.25); // 0.3 * 100,000 / 150 = $200 per lot
     expect(c.riskAmount).toBe(50);

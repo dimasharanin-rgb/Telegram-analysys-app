@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { Candle } from "@/types/market";
+import type { Candle } from "@/shared/types/market";
 import { analyzeMarketStructure, atr, calculateIndicators, ema, findLevels, findSwings, rsi } from "@/technical";
 
-const candle = (i: number, close: number, spread = 0.5): Candle => ({ time: i * 60, open: close, high: close + spread, low: close - spread, close });
+const candle = (i: number, close: number, spread = 0.5): Candle => ({ timestamp: i * 60_000, open: close, high: close + spread, low: close - spread, close });
 
 /** Zig-zag path through the given turning points, one candle per unit step. */
 function path(points: number[]): Candle[] {

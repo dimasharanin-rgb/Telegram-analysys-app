@@ -1,6 +1,6 @@
-import type { Candle } from "@/types/market";
-import type { IndicatorSet, VolatilityRegime } from "@/types/technical";
-import { median } from "@/lib/math";
+import type { Candle } from "@/shared/types/market";
+import type { IndicatorSet, VolatilityRegime } from "@/shared/types/technical";
+import { median } from "@/shared/math";
 
 /** Exponential moving average seeded with the simple average of the first `period` values. */
 export function ema(values: number[], period: number): (number | null)[] {

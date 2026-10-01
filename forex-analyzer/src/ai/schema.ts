@@ -5,7 +5,7 @@ import {
   RATINGS,
   RISK_LEVELS,
   type AiAssessment,
-} from "@/types/ai";
+} from "@/shared/types/ai";
 
 const rating = z.enum(RATINGS);
 const score = z.number().int().min(0).max(100).nullable();

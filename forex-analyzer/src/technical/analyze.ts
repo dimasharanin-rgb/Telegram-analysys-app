@@ -1,9 +1,9 @@
-import type { Candle } from "@/types/market";
-import type { IndicatorSet, TimeframeAnalysis } from "@/types/technical";
-import type { Timeframe } from "@/types/trade";
-import { calculateIndicators } from "./indicators";
-import { findLevels } from "./levels";
-import { analyzeMarketStructure } from "./structure";
+import type { Candle } from "@/shared/types/market";
+import type { IndicatorSet, TimeframeAnalysis } from "@/shared/types/technical";
+import { PRIMARY_TIMEFRAMES, TIMEFRAME_SECONDS, type Timeframe } from "@/shared/types/trade";
+import { calculateIndicators } from "@/technical/indicators";
+import { findLevels } from "@/technical/levels";
+import { analyzeMarketStructure } from "@/technical/structure";
 
 /** Candles of history used for swings, levels and structure (indicators use the full series). */
 const STRUCTURE_WINDOW = 150;
@@ -30,7 +30,7 @@ export function analyzeTimeframe(timeframe: Timeframe, candles: Candle[]): Timef
   return {
     timeframe,
     candleCount: candles.length,
-    lastCandleTime: candles.at(-1)?.time ?? 0,
+    lastCandleTime: candles.at(-1)?.timestamp ?? 0,
     indicators,
     structure,
     recentSwingHighs: recent("HIGH"),
@@ -41,12 +41,8 @@ export function analyzeTimeframe(timeframe: Timeframe, candles: Candle[]): Timef
   };
 }
 
-/** Timeframes analysed for a trade: the trade's own plus higher (and one lower) context. */
-export const CONTEXT_TIMEFRAMES: Record<Timeframe, Timeframe[]> = {
-  M5: ["H1", "M15", "M5"],
-  M15: ["H4", "H1", "M15", "M5"],
-  M30: ["H4", "H1", "M30"],
-  H1: ["D1", "H4", "H1"],
-  H4: ["D1", "H4", "H1"],
-  D1: ["D1", "H4"],
-};
+/** Timeframes analysed for a trade: always M5, M15, H1 and H4, plus the trade's own if different. Highest first. */
+export function analysisTimeframes(tradeTimeframe: Timeframe): Timeframe[] {
+  const set = new Set<Timeframe>([...PRIMARY_TIMEFRAMES, tradeTimeframe]);
+  return [...set].sort((a, b) => TIMEFRAME_SECONDS[b] - TIMEFRAME_SECONDS[a]);
+}

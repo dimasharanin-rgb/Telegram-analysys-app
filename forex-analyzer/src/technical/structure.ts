@@ -1,5 +1,5 @@
-import type { Candle } from "@/types/market";
-import type { MarketStructure, SwingPoint } from "@/types/technical";
+import type { Candle } from "@/shared/types/market";
+import type { MarketStructure, SwingPoint } from "@/shared/types/technical";
 
 /** Bars required on each side of a pivot for it to count as a swing. */
 export const SWING_LOOKBACK = 3;
@@ -23,8 +23,8 @@ export function findSwings(candles: Candle[], lookback = SWING_LOOKBACK): SwingP
       if (!(c.high > before.high && c.high >= after.high)) isHigh = false;
       if (!(c.low < before.low && c.low <= after.low)) isLow = false;
     }
-    if (isHigh) raw.push({ kind: "HIGH", time: c.time, price: c.high, index: i, label: null });
-    if (isLow) raw.push({ kind: "LOW", time: c.time, price: c.low, index: i, label: null });
+    if (isHigh) raw.push({ kind: "HIGH", timestamp: c.timestamp, price: c.high, index: i, label: null });
+    if (isLow) raw.push({ kind: "LOW", timestamp: c.timestamp, price: c.low, index: i, label: null });
   }
 
   const alternating: SwingPoint[] = [];

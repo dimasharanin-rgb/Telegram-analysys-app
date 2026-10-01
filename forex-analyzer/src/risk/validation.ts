@@ -1,8 +1,8 @@
-import type { InstrumentSpec } from "@/types/instrument";
-import type { RiskCheck } from "@/types/risk";
-import { DIRECTIONS, type TradeInput } from "@/types/trade";
-import { formatPrice } from "@/lib/instruments";
-import { calculateRR } from "./calculations";
+import type { InstrumentSpec } from "@/shared/types/instrument";
+import type { RiskCheck } from "@/shared/types/risk";
+import { DIRECTIONS, type TradeInput } from "@/shared/types/trade";
+import { formatPrice } from "@/shared/instruments";
+import { calculateRR } from "@/risk/calculations";
 
 function isPositiveNumber(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v) && v > 0;

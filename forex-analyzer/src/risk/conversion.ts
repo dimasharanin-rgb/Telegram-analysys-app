@@ -1,6 +1,6 @@
-import type { InstrumentSpec } from "@/types/instrument";
-import type { ConversionDescription } from "@/types/risk";
-import { getInstrument } from "@/lib/instruments";
+import type { InstrumentSpec } from "@/shared/types/instrument";
+import type { ConversionDescription } from "@/shared/types/risk";
+import { getInstrument } from "@/shared/instruments";
 
 /** Returns the current mid price of a symbol, if known. */
 export type QuoteLookup = (symbol: string) => number | undefined;
@@ -14,7 +14,7 @@ export interface QuoteConversion {
 /** Symbols whose price is needed to convert this instrument's P/L into the account currency. */
 export function conversionSymbols(instrument: InstrumentSpec, accountCurrency: string): string[] {
   if (instrument.quote === accountCurrency || instrument.base === accountCurrency) return [];
-  return [`${instrument.quote}${accountCurrency}`, `${accountCurrency}${instrument.quote}`].filter(
+  return [`${instrument.quote}/${accountCurrency}`, `${accountCurrency}/${instrument.quote}`].filter(
     (s) => getInstrument(s) !== undefined,
   );
 }
@@ -46,12 +46,12 @@ export function resolveConversion(
       },
     };
   }
-  const direct = `${instrument.quote}${accountCurrency}`;
+  const direct = `${instrument.quote}/${accountCurrency}`;
   const directPrice = lookup(direct);
   if (directPrice !== undefined && directPrice > 0) {
     return { rateAt: () => directPrice, description: { kind: "CROSS_RATE", via: direct, rate: directPrice } };
   }
-  const inverse = `${accountCurrency}${instrument.quote}`;
+  const inverse = `${accountCurrency}/${instrument.quote}`;
   const inversePrice = lookup(inverse);
   if (inversePrice !== undefined && inversePrice > 0) {
     const rate = 1 / inversePrice;

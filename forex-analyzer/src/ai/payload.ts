@@ -1,9 +1,9 @@
-import type { MarketCheck, MarketSnapshot, TradeContext } from "@/types/analysis";
-import type { InstrumentSpec } from "@/types/instrument";
-import type { RiskCalculation, RiskReport } from "@/types/risk";
-import type { StructureBias, TimeframeAnalysis } from "@/types/technical";
-import type { Direction, Timeframe, TradeInput } from "@/types/trade";
-import { round } from "@/lib/math";
+import type { MarketCheck, MarketSnapshot, TradeContext } from "@/shared/types/analysis";
+import type { InstrumentSpec } from "@/shared/types/instrument";
+import type { RiskCalculation, RiskReport } from "@/shared/types/risk";
+import type { StructureBias, TimeframeAnalysis } from "@/shared/types/technical";
+import type { Direction, Timeframe, TradeInput } from "@/shared/types/trade";
+import { round } from "@/shared/math";
 
 export interface PayloadLevel {
   price: number;
@@ -151,7 +151,7 @@ export function buildClaudePayload(input: BuildPayloadInput): ClaudePayload {
       riskEngineWarnings: risk.checks.filter((c) => c.status === "WARNING").map((c) => `${c.label}: ${c.detail}`),
     },
     market: {
-      price: market.price.price,
+      price: market.price.mid,
       bid: market.price.bid,
       ask: market.price.ask,
       spread: market.price.spread,

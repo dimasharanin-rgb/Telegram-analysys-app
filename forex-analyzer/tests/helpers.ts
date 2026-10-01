@@ -1,7 +1,7 @@
-import type { AccountState } from "@/types/risk";
-import type { AccountSettings } from "@/types/settings";
-import type { TradeInput } from "@/types/trade";
-import { DEFAULT_SETTINGS } from "@/lib/defaults";
+import type { AccountState } from "@/shared/types/risk";
+import type { AccountSettings } from "@/shared/types/settings";
+import type { TradeInput } from "@/shared/types/trade";
+import { DEFAULT_SETTINGS } from "@/shared/defaults";
 import { runRiskEngine } from "@/risk";
 
 /** 11:00 UTC on a Wednesday: London session is open. */
@@ -12,7 +12,9 @@ export function settings(patch: Partial<AccountSettings> = {}): AccountSettings 
 }
 
 export function account(patch: Partial<AccountState> = {}): AccountState {
+  const balance = patch.balance ?? 10_000;
   return {
+    equity: patch.equity ?? balance,
     source: "MANUAL",
     initialBalance: 10_000,
     balance: 10_000,

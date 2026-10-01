@@ -1,7 +1,7 @@
-import type { AiAssessment, ScoreComponent } from "@/types/ai";
-import { SCORE_COMPONENTS } from "@/types/ai";
-import { AiError } from "./errors";
-import { aiAssessmentSchema } from "./schema";
+import type { AiAssessment, ScoreComponent } from "@/shared/types/ai";
+import { SCORE_COMPONENTS } from "@/shared/types/ai";
+import { AiError } from "@/ai/errors";
+import { aiAssessmentSchema } from "@/ai/schema";
 
 export interface ParsedAssessment {
   assessment: AiAssessment;

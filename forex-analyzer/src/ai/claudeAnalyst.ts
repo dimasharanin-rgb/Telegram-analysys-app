@@ -1,10 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { AnalystResult, TradeAnalyst } from "./analyst";
-import { AiError } from "./errors";
-import { parseClaudeResponse } from "./parse";
-import type { ClaudePayload } from "./payload";
-import { AI_OUTPUT_JSON_SCHEMA } from "./schema";
-import { getSystemPrompt } from "./systemPrompt";
+import type { AnalystResult, TradeAnalyst } from "@/ai/analyst";
+import { AiError } from "@/ai/errors";
+import { parseClaudeResponse } from "@/ai/parse";
+import type { ClaudePayload } from "@/ai/payload";
+import { AI_OUTPUT_JSON_SCHEMA } from "@/ai/schema";
+import { getSystemPrompt } from "@/ai/systemPrompt";
 
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 

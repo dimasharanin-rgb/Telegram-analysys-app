@@ -1,8 +1,8 @@
-import type { AiAssessment, AiVerdict, Rating, ScoreComponent, ScoreComponentKey } from "@/types/ai";
-import type { StructureBias } from "@/types/technical";
-import type { AnalystResult, TradeAnalyst } from "./analyst";
-import { parseClaudeResponse } from "./parse";
-import type { ClaudePayload, PayloadTimeframe } from "./payload";
+import type { AiAssessment, AiVerdict, Rating, ScoreComponent, ScoreComponentKey } from "@/shared/types/ai";
+import type { StructureBias } from "@/shared/types/technical";
+import type { AnalystResult, TradeAnalyst } from "@/ai/analyst";
+import { parseClaudeResponse } from "@/ai/parse";
+import type { ClaudePayload, PayloadTimeframe } from "@/ai/payload";
 
 const WEIGHTS: Record<ScoreComponentKey, number> = {
   higherTimeframeAlignment: 0.2,

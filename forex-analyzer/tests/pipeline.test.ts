@@ -1,16 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AiAssessment } from "@/types/ai";
-import type { AnalysisResult } from "@/types/analysis";
-import type { TradeInput } from "@/types/trade";
+import type { AiAssessment } from "@/shared/types/ai";
+import type { AnalysisResult } from "@/shared/types/analysis";
+import type { TradeInput } from "@/shared/types/trade";
 import type { TradeAnalyst } from "@/ai/analyst";
 import { AiError } from "@/ai/errors";
 import { MockAnalyst } from "@/ai/mockAnalyst";
 import { parseClaudeResponse } from "@/ai/parse";
 import type { ClaudePayload } from "@/ai/payload";
-import { analyzeTrade, type AnalysisDeps } from "@/services/analysis/analysisService";
-import { decide } from "@/services/analysis/decision";
-import { MockMarketDataProvider } from "@/services/market/mockProvider";
-import { MarketDataError, type MarketDataProvider } from "@/services/market/types";
+import { analyzeTrade, type AnalysisDeps } from "@/analysis/analysisService";
+import { decide } from "@/analysis/decision";
+import { MockMarketDataProvider } from "@/data/mock/mockProvider";
+import { MarketDataError, type MarketDataProvider } from "@/data/types";
 import { account, risk, settings } from "./helpers";
 import { validAssessment } from "./fixtures";
 
@@ -50,8 +50,8 @@ function deps(analyst: TradeAnalyst, opts: { market?: MarketDataProvider; now?: 
 
 /** A valid 20-pip / 45-pip EURUSD trade at the mock market's current price. */
 async function marketTrade(patch: Partial<TradeInput> = {}, now = NOW): Promise<TradeInput> {
-  const price = (await new MockMarketDataProvider({ now: () => now }).getCurrentPrice("EURUSD")).price;
-  return { pair: "EURUSD", direction: "LONG", entry: price, stopLoss: +(price - 0.002).toFixed(5), takeProfit: +(price + 0.0045).toFixed(5), timeframe: "M15", ...patch };
+  const price = (await new MockMarketDataProvider({ now: () => now }).getQuote("EUR/USD")).mid;
+  return { pair: "EUR/USD", direction: "LONG", entry: price, stopLoss: +(price - 0.002).toFixed(5), takeProfit: +(price + 0.0045).toFixed(5), timeframe: "M15", ...patch };
 }
 
 describe("analysis pipeline", () => {
@@ -85,7 +85,7 @@ describe("analysis pipeline", () => {
     expect(analyst.analyze).toHaveBeenCalledOnce();
 
     const payload = calls[0]!;
-    expect(payload.pair).toBe("EURUSD");
+    expect(payload.pair).toBe("EUR/USD");
     expect(payload.risk.riskPercent).toBeLessThanOrEqual(0.5);
     expect(Object.keys(payload.structure)).toEqual(["h4", "h1", "m15", "m5"]);
     expect(payload.userThesis).toBe("Breakout and retest");
@@ -99,10 +99,11 @@ describe("analysis pipeline", () => {
     const stale: MarketDataProvider = {
       id: "stale",
       name: "Stale feed",
-      isMock: false,
+      mode: "LIVE",
       supportsTimeframe: (tf) => inner.supportsTimeframe(tf),
       getCandles: (p, tf, n) => inner.getCandles(p, tf, n),
-      getCurrentPrice: async (p) => ({ ...(await inner.getCurrentPrice(p)), timestamp: NOW.getTime() - 3_600_000 }),
+      getQuote: async (p) => ({ ...(await inner.getQuote(p)), timestamp: NOW.getTime() - 3_600_000 }),
+      searchSymbols: async () => [],
     };
     const { d } = deps(analyst, { market: stale });
     const result = await analyzeTrade(await marketTrade(), d);
@@ -116,7 +117,7 @@ describe("analysis pipeline", () => {
   it("does not produce a verdict when candles are missing", async () => {
     const { analyst } = stubAnalyst();
     const inner = new MockMarketDataProvider({ now: () => NOW });
-    const short: MarketDataProvider = { ...inner, id: "x", name: "x", isMock: true, supportsTimeframe: () => true, getCurrentPrice: (p) => inner.getCurrentPrice(p), getCandles: async (p, tf) => (await inner.getCandles(p, tf, 260)).slice(-10) };
+    const short: MarketDataProvider = { id: "x", name: "x", mode: "MOCK", supportsTimeframe: () => true, searchSymbols: async () => [], getQuote: (p) => inner.getQuote(p), getCandles: async (p, tf) => (await inner.getCandles(p, tf, 260)).slice(-10) };
     const result = await analyzeTrade(await marketTrade(), deps(analyst, { market: short }).d);
     expect(result.state).toBe("UNAVAILABLE");
     expect(result.unavailable?.code).toBe("BAD_CANDLES");
@@ -128,9 +129,10 @@ describe("analysis pipeline", () => {
     const failing: MarketDataProvider = {
       id: "down",
       name: "Down",
-      isMock: false,
+      mode: "LIVE",
       supportsTimeframe: () => true,
-      getCurrentPrice: async () => {
+      searchSymbols: async () => [],
+      getQuote: async () => {
         throw new MarketDataError("TIMEOUT", "Provider did not respond in time.");
       },
       getCandles: async () => [],

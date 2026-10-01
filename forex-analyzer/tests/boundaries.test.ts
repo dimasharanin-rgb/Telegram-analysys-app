@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const SRC = fileURLToPath(new URL("../src", import.meta.url));
-const SERVER_ONLY = ["ai", "database", "services", "api", "server"].map((d) => join(SRC, d));
+const SERVER_ONLY = ["data", "ai", "journal", "analysis", "server"].map((d) => join(SRC, d));
 
 function resolveImport(from: string, spec: string): string | null {
   let base: string;
@@ -36,13 +36,13 @@ function clientGraph(entry: string): Set<string> {
 }
 
 describe("client/server boundary", () => {
-  const graph = clientGraph(join(SRC, "main.tsx"));
+  const graph = clientGraph(join(SRC, "ui/main.tsx"));
 
   it("finds the client code", () => {
     expect(graph.size).toBeGreaterThan(20);
   });
 
-  it("the browser bundle cannot reach AI, database, service, API or server code", () => {
+  it("the browser bundle cannot reach data, AI, journal, analysis or server code", () => {
     const leaks = [...graph].filter((f) => SERVER_ONLY.some((dir) => f.startsWith(dir + "/")));
     expect(leaks).toEqual([]);
   });

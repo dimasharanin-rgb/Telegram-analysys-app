@@ -1,5 +1,5 @@
-import type { AiAssessment, AiRunInfo } from "@/types/ai";
-import type { ClaudePayload } from "./payload";
+import type { AiAssessment, AiRunInfo } from "@/shared/types/ai";
+import type { ClaudePayload } from "@/ai/payload";
 
 export interface AnalystResult {
   assessment: AiAssessment;

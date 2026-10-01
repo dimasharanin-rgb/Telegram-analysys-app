@@ -21,30 +21,35 @@ Requires Node.js 20.19+ (22 LTS recommended).
 
 ```bash
 cd forex-analyzer
+cp .env.example .env      # add TWELVE_DATA_API_KEY (and ANTHROPIC_API_KEY when ready)
 npm install
-npm run dev          # http://127.0.0.1:5173
+npm run dev               # http://127.0.0.1:5173
 ```
-
-No configuration is needed: without keys the app runs entirely in **mock mode**, with synthetic market data for EURUSD,
-GBPUSD, USDJPY, XAUUSD and a few more pairs, and a rule-based mock analyst instead of Claude. Mock mode is labelled
-in the top bar, on every verdict and in the AI summary, so it can't be mistaken for real analysis.
-
-To use real services, copy `.env.example` to `.env` and fill in what you have:
 
 | Variable | Purpose |
 |---|---|
-| `ANTHROPIC_API_KEY` | Enables Claude. Empty → mock analyst. |
-| `ANTHROPIC_MODEL` | Default `claude-opus-5-5`. |
-| `ANTHROPIC_EFFORT` | `low` … `max`, default `high`. |
-| `ANTHROPIC_TIMEOUT_SECONDS` | Default 120. |
-| `MARKET_DATA_PROVIDER` | `mock` or `twelvedata`. Defaults to `twelvedata` when a key is set. |
-| `MARKET_DATA_API_KEY` | [Twelve Data](https://twelvedata.com) API key. |
-| `MARKET_DATA_MAX_AGE_SECONDS` | A quote older than this is stale. Default 300. |
-| `PORT`, `HOST` | Default `5173`, `127.0.0.1` (local only). |
-| `DATABASE_PATH` | Default `./data/forex-analyzer.db` (created on first run). |
+| `TWELVE_DATA_API_KEY` | Real market data (REST + WebSocket). Required for LIVE mode. |
+| `ANTHROPIC_API_KEY` | Claude analysis. Empty → a clearly labelled mock analyst. |
+| `ANTHROPIC_MODEL`, `ANTHROPIC_EFFORT`, `ANTHROPIC_TIMEOUT_SECONDS` | Default `claude-opus-5-5`, `high`, 120. |
+| `TWELVE_DATA_REST_POLL_SECONDS` | Quote polling interval used **only** while the WebSocket is down. Default 30. |
+| `CANDLE_CACHE_TTL_SECONDS` | Per-timeframe candle cache lifetimes, e.g. `M5=20,H1=90`. |
+| `PORT`, `HOST`, `DATABASE_PATH` | Default `5173`, `127.0.0.1`, `./data/forex-analyzer.db`. |
 
-Keys are read by the server only. They are never sent to the browser, never stored in SQLite, and the Twelve Data key
-travels in a header rather than the URL.
+Keys are read by the server only. The browser talks to this application's server, which talks to Twelve Data and
+Anthropic; no key is ever sent to the browser or stored in SQLite.
+
+### LIVE and MOCK data
+
+The **DATA MODE** switch in the top bar selects the source:
+
+- **LIVE** (default): Twelve Data. If the key is missing or Twelve Data fails, the app shows
+  **LIVE DATA UNAVAILABLE** and the reason. It never substitutes synthetic data while in LIVE mode.
+- **MOCK**: a deterministic synthetic market (EUR/USD, GBP/USD, USD/JPY and others) for development. Marked
+  **MOCK DATA** and **SIMULATED** everywhere.
+
+The connection indicator shows **● LIVE**, **● RECONNECTING** or **● OFFLINE**, and every price shows
+"Data: N seconds ago". Data older than the freshness threshold (Settings, default 120 s) is marked **STALE DATA** and
+is not analysed. Outside Forex market hours real data is legitimately stale.
 
 Other scripts:
 
@@ -54,8 +59,41 @@ npm run typecheck
 npm run build        # production bundle
 npm start            # serve the production build (run build first)
 npm run verify       # typecheck + tests + build
-npm run test:e2e     # browser test of the main flow; needs `npx playwright install chromium` once
+npm run test:e2e     # browser tests; needs `npx playwright install chromium` once
 ```
+
+## Market data layer (`src/data`)
+
+Everything else depends on the `MarketDataProvider` interface (`getQuote`, `getCandles`, `searchSymbols`) or on
+`MarketDataService`, which implements it. Twelve Data's wire format never leaves `src/data/twelvedata`.
+
+- `twelvedata/normalize.ts`: pure translation of `/time_series`, `/quote`, `/forex_pairs`, WebSocket `price` events
+  and error payloads into `Candle`, `Quote` and `Instrument`. Typed errors: invalid key, rate limit/credits, plan
+  restriction, invalid symbol, timeouts, no data.
+- `twelvedata/provider.ts`: REST client. The key goes in the `Authorization: apikey …` header, never in a URL. The
+  Forex pair list is fetched at most once a day and searched locally.
+- `twelvedata/priceStream.ts`: the WebSocket (`/v1/quotes/price`). It connects only while a symbol is being watched,
+  reference-counts subscriptions, sends `{"action":"heartbeat"}` every 10 s, reconnects with exponential backoff if the
+  line drops or goes silent, resubscribes after reconnecting, reports symbols the plan rejects, and stops retrying if
+  the key is refused.
+- `marketDataService.ts`: mode switching, plus credit conservation. In order:
+  1. **Candles** are cached per timeframe: M1 15 s, M5 30 s, M15 60 s, M30 90 s, H1 2 min, H2 4 min, H4 5 min,
+     D1 15 min. Concurrent requests share one call.
+  2. **The forming candle** is kept current from the stream instead of refetching.
+  3. **The latest price** comes from the stream when it is fresh, so no REST quote is spent.
+  4. **If the WebSocket is unavailable**, quotes are polled sparingly (default every 30 s) and only while someone is
+     watching.
+- `snapshot()` builds one coherent `MarketDataSnapshot`: quote plus M5/M15/H1/H4 candles, `dataTimestamp`,
+  `retrievedAt` and a staleness verdict.
+- `usage.ts`: request, error, cache and stream counters, shown in **Developer Mode** (Settings) at the bottom of
+  the screen.
+
+The browser receives prices through a server-sent-events endpoint (`/api/stream?symbol=EUR/USD`). The server holds
+the one upstream WebSocket and fans prices out. Live prices only update the screen; they never trigger an AI call.
+
+Instruments are not hardcoded. Any pair of recognised ISO currencies works (`EUR/USD`, `AUD/NZD`, …). Pip size is
+derived from the quote currency (0.01 for JPY, 0.0001 otherwise), and metals have their own contract. Add or remove
+pairs in Settings → Watchlist, which searches Twelve Data's symbol list.
 
 ## The three layers
 
@@ -103,17 +141,10 @@ Daily loss and drawdown assume every open position loses its full risk (worst ca
 the initial balance or the day-start balance; drawdown can be static or trailing; the trading day resets in a time zone
 you choose. **None of these are assumed to be universal prop-firm rules.** They are your settings.
 
-Account figures (balance, today's P/L, open positions and their risk) come from the journal by default: closed trades'
-P/L and entries marked *Open*. You can switch to entering them manually in Settings.
 
-### 2. Market and technical analysis (`src/services/market`, `src/technical`)
 
-- `MarketDataProvider` is an interface (`getCurrentPrice`, `getCandles`); the analysis depends only on it.
-  - `MockMarketDataProvider`: deterministic synthetic data (seeded random walk with trend regimes, volatility
-    clustering and session activity), generated at M5 and aggregated so all timeframes agree. It trades 24/7.
-  - `TwelveDataProvider`: real quotes and candles for M5–D1. Twelve Data does not report bid/ask, so the spread is
-    shown as "not reported" rather than guessed.
-  - `CachedMarketDataProvider` wraps either one for a few seconds to protect rate limits.
+### 2. Technical analysis (`src/technical`)
+
 - Before anything is analysed, data is verified: quote age, candle count, time order, OHLC consistency, the latest
   candle's age, and whether the quote agrees with the candles. Any failure → **ANALYSIS UNAVAILABLE — Market data
   could not be verified.** No verdict is produced.
@@ -140,7 +171,7 @@ None of these is treated as a signal. They are inputs to the assessment.
 - Timeouts, rate limits, auth errors, refusals and truncated answers all become **ANALYSIS UNAVAILABLE**, with the
   risk engine's results still shown.
 
-### How the final verdict is decided (`src/services/analysis/decision.ts`)
+### How the final verdict is decided (`src/analysis/decision.ts`)
 
 1. Risk engine BLOCK → **TRADE BLOCKED**. The AI is not called, so it cannot override this.
 2. Unverified market data or a failed or invalid AI response → **ANALYSIS UNAVAILABLE**.
@@ -162,28 +193,22 @@ buckets and a rank correlation, all labelled as descriptive, not as evidence tha
 
 ```
 src/
-  main.tsx, index.css     browser entry
-  pages/                  Dashboard, Trade Analyzer, Journal, Settings
-  components/             UI (no business logic)
-  hooks/                  data loading, debounced risk preview
-  lib/                    shared pure code: instruments, schemas, formatting, API client
-  types/                  shared types
-  risk/                   deterministic risk engine            (pure)
-  technical/              indicators, structure, levels        (pure)
-  ai/                     Claude client, prompt, schema, parser, mock analyst      server only
-  services/               market data providers, analysis pipeline, statistics    server only
-  database/               SQLite (better-sqlite3), migrations, repositories        server only
-  api/                    Express routes and input validation                     server only
-  server/                 config, wiring, dev/production server                   server only
-tests/                    vitest: risk engine, technicals, AI parsing, Claude client, pipeline, DB, API, boundaries
-e2e/                      Playwright: the main user flow in a real browser
+  data/         market data: provider interface, Twelve Data REST + WebSocket, mock, cache, freshness   (server)
+  technical/    indicators, swing structure, support/resistance                                       (pure)
+  risk/         deterministic risk engine — imports nothing from ai/                                  (pure)
+  ai/           Claude client, system prompt, output schema, parser, mock analyst                      (server)
+  analysis/     the pipeline that runs the layers in order                                             (server)
+  journal/      SQLite, journal repository, statistics                                                 (server)
+  server/       Express API, SSE price stream, config, settings                                        (server)
+  shared/       types, instrument specs, schemas, formatting                                           (pure, both sides)
+  ui/           React pages, components and hooks                                                      (browser)
+tests/          vitest: risk, technicals, Twelve Data normalisation, WebSocket (against a local fake), cache,
+                freshness, AI parsing, Claude client, pipeline, DB, API, client/server boundary
+e2e/            Playwright: data mode, live price/chart/timestamp, and the full analysis flow
 ```
 
-`tests/boundaries.test.ts` walks the browser bundle's import graph and fails if it can reach any server-only folder or
-`process.env`.
-
-In development one process serves both the API and the Vite dev server (`npm run dev`). In production the same Express
-server serves the built files from `dist/`.
+`tests/boundaries.test.ts` walks the browser bundle's import graph and fails if it can reach `data/`, `ai/`,
+`journal/`, `analysis/`, `server/` or `process.env`.
 
 ## Not implemented, deliberately
 
@@ -193,7 +218,10 @@ current code path sends anything to a broker.
 
 ## Known limitations
 
-- The mock market is synthetic and ignores weekends; its crosses are not derived from the majors.
-- Twelve Data has no spread data, and on the free tier allows about 8 requests a minute. One analysis needs about 5–6.
+- Twelve Data's REST `/quote` has no bid/ask; the spread comes from the WebSocket. When only REST is available the
+  spread is shown as n/a rather than guessed.
+- WebSocket access depends on the Twelve Data plan; when it is refused the app falls back to sparse REST polling and
+  says so.
+- The mock market is synthetic, has no M1 data, ignores weekends, and its crosses are not derived from the majors.
 - When the market is closed, real data goes stale and the analysis is (correctly) unavailable.
 - Session windows are approximate fixed UTC hours, not adjusted for daylight saving time.

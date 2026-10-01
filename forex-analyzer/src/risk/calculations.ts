@@ -1,8 +1,8 @@
-import type { InstrumentSpec } from "@/types/instrument";
-import type { RiskCalculation } from "@/types/risk";
-import type { TradeInput } from "@/types/trade";
-import { floorToStep, round } from "@/lib/math";
-import type { QuoteConversion } from "./conversion";
+import type { InstrumentSpec } from "@/shared/types/instrument";
+import type { RiskCalculation } from "@/shared/types/risk";
+import type { TradeInput } from "@/shared/types/trade";
+import { floorToStep, round } from "@/shared/math";
+import type { QuoteConversion } from "@/risk/conversion";
 
 export interface RiskRewardResult {
   /** Positive when the stop is on the losing side of entry. */

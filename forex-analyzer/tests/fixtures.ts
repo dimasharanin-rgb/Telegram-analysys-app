@@ -1,4 +1,4 @@
-import type { AiAssessment } from "@/types/ai";
+import type { AiAssessment } from "@/shared/types/ai";
 
 /** A schema-valid AI assessment, shaped like the example in the specification. */
 export function validAssessment(patch: Partial<AiAssessment> = {}): AiAssessment {

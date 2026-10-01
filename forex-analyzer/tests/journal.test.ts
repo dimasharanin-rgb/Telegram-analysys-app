@@ -1,24 +1,24 @@
 import { describe, expect, it } from "vitest";
-import type { AnalysisResult } from "@/types/analysis";
-import type { JournalSummary } from "@/types/journal";
+import type { AnalysisResult } from "@/shared/types/analysis";
+import type { JournalSummary } from "@/shared/types/journal";
 import { MockAnalyst } from "@/ai/mockAnalyst";
-import { openDatabase } from "@/database/client";
-import { JournalRepository } from "@/database/journalRepository";
-import { SettingsRepository } from "@/database/settingsRepository";
-import { DEFAULT_SETTINGS } from "@/lib/defaults";
+import { openDatabase } from "@/journal/db";
+import { JournalRepository } from "@/journal/journalRepository";
+import { SettingsRepository } from "@/server/settingsRepository";
+import { DEFAULT_SETTINGS } from "@/shared/defaults";
 import { deriveAccountState } from "@/risk";
-import { analyzeTrade } from "@/services/analysis/analysisService";
-import { MockMarketDataProvider } from "@/services/market/mockProvider";
-import { journalStats, MIN_SAMPLE_FOR_SCORE_STATS, scoreVsOutcome, spearman } from "@/services/statsService";
+import { analyzeTrade } from "@/analysis/analysisService";
+import { MockMarketDataProvider } from "@/data/mock/mockProvider";
+import { journalStats, MIN_SAMPLE_FOR_SCORE_STATS, scoreVsOutcome, spearman } from "@/journal/stats";
 import { account, settings } from "./helpers";
 
 const NOW = new Date("2026-09-30T11:00:00Z");
 
 async function analysis(patch: { positionSize?: number } = {}): Promise<AnalysisResult> {
   const market = new MockMarketDataProvider({ now: () => NOW });
-  const price = (await market.getCurrentPrice("EURUSD")).price;
+  const price = (await market.getQuote("EUR/USD")).mid;
   return analyzeTrade(
-    { pair: "EURUSD", direction: "LONG", entry: price, stopLoss: +(price - 0.002).toFixed(5), takeProfit: +(price + 0.0045).toFixed(5), timeframe: "M15", thesis: "test", ...patch },
+    { pair: "EUR/USD", direction: "LONG", entry: price, stopLoss: +(price - 0.002).toFixed(5), takeProfit: +(price + 0.0045).toFixed(5), timeframe: "M15", thesis: "test", ...patch },
     {
       market,
       analyst: new MockAnalyst(),
@@ -54,7 +54,7 @@ describe("journal repository", () => {
     const id = repo.insert(result);
     const entry = repo.get(id)!;
 
-    expect(entry.pair).toBe("EURUSD");
+    expect(entry.pair).toBe("EUR/USD");
     expect(entry.riskAmount).toBe(result.risk.calculation!.riskAmount);
     expect(entry.riskReward).toBe(result.risk.calculation!.riskReward);
     expect(entry.aiScore).toBe(result.ai!.assessment.setupQuality);
@@ -98,7 +98,7 @@ describe("journal repository", () => {
     expect(records.closed).toEqual([{ closedAt: NOW.toISOString(), pnl: risk * 2 }]);
     expect(records.open).toEqual([{ riskAmount: risk }]);
 
-    const state = deriveAccountState(settings(), records, NOW);
+    const state = deriveAccountState(settings({ accountStateSource: "JOURNAL" }), records, NOW);
     expect(state.balance).toBeCloseTo(10_000 + risk * 2, 2);
     expect(state.todayRealizedPnl).toBeCloseTo(risk * 2, 2);
     expect(state.openPositions).toBe(1);
@@ -114,7 +114,7 @@ describe("journal repository", () => {
     const score = ok.ai!.assessment.setupQuality;
 
     expect(repo.list()).toHaveLength(2);
-    expect(repo.list({ pair: "GBPUSD" })).toHaveLength(0);
+    expect(repo.list({ pair: "GBP/USD" })).toHaveLength(0);
     expect(repo.list({ verdict: "BLOCKED" })).toHaveLength(1);
     expect(repo.list({ minScore: score, maxScore: score })).toHaveLength(1);
     expect(repo.list({ minScore: score + 1 })).toHaveLength(0);
@@ -135,7 +135,7 @@ describe("journal repository", () => {
 
 describe("account state from the journal", () => {
   it("counts only today's closes (in the configured time zone) towards today's P/L", () => {
-    const s = settings({ dayResetTimeZone: "America/New_York" });
+    const s = settings({ dayResetTimeZone: "America/New_York", accountStateSource: "JOURNAL" });
     // 02:00 UTC on the 30th is still the 29th in New York.
     const state = deriveAccountState(s, { closed: [{ closedAt: "2026-09-30T02:00:00Z", pnl: -100 }, { closedAt: "2026-09-30T10:00:00Z", pnl: 40 }], open: [] }, NOW);
     expect(state.balance).toBe(9_940);
@@ -145,8 +145,8 @@ describe("account state from the journal", () => {
   });
 
   it("uses the manual figures in MANUAL mode", () => {
-    const s = settings({ accountStateSource: "MANUAL", manualState: { balance: 9_800, todayRealizedPnl: -200, openPositions: 2, openRisk: 75, highWaterMark: 10_300 } });
-    expect(deriveAccountState(s, { closed: [], open: [] }, NOW)).toMatchObject({ source: "MANUAL", balance: 9_800, dayStartBalance: 10_000, openPositions: 2, openRisk: 75, highWaterMark: 10_300 });
+    const s = settings({ accountStateSource: "MANUAL", manualState: { balance: 9_800, equity: 9_750, todayRealizedPnl: -200, todayUnrealizedPnl: -50, openPositions: 2, openRisk: 75, highWaterMark: 10_300 } });
+    expect(deriveAccountState(s, { closed: [], open: [] }, NOW)).toMatchObject({ source: "MANUAL", balance: 9_800, equity: 9_750, dayStartBalance: 10_000, openPositions: 2, openRisk: 75, highWaterMark: 10_300 });
   });
 });
 
@@ -154,7 +154,7 @@ describe("statistics", () => {
   const entry = (i: number, patch: Partial<JournalSummary>): JournalSummary => ({
     id: String(i),
     createdAt: NOW.toISOString(),
-    pair: "EURUSD",
+    pair: "EUR/USD",
     direction: "LONG",
     timeframe: "M15",
     entry: 1,

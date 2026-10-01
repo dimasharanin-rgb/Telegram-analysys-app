@@ -1,4 +1,4 @@
-import type { PriceLevel, SwingPoint } from "@/types/technical";
+import type { PriceLevel, SwingPoint } from "@/shared/types/technical";
 
 /** Swings closer together than this many ATRs are treated as the same level. */
 const CLUSTER_ATR = 0.35;

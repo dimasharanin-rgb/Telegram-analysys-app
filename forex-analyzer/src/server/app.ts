@@ -1,6 +1,6 @@
 import express, { type Express } from "express";
-import { createApiRouter } from "@/api/router";
-import type { Services } from "./container";
+import { createApiRouter } from "@/server/api/router";
+import type { Services } from "@/server/container";
 
 export function createApp(services: Services): Express {
   const app = express();

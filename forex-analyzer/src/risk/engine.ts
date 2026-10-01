@@ -1,11 +1,11 @@
-import type { AccountState, RiskCheck, RiskReport, RiskReportStatus } from "@/types/risk";
-import type { AccountSettings } from "@/types/settings";
-import type { TradeInput } from "@/types/trade";
-import { getInstrument, normalizeSymbol } from "@/lib/instruments";
-import { calculateRisk } from "./calculations";
-import { resolveConversion, type QuoteLookup } from "./conversion";
-import { checkAccountLimits, computeLimits } from "./limits";
-import { validateTrade } from "./validation";
+import type { AccountState, RiskCheck, RiskReport, RiskReportStatus } from "@/shared/types/risk";
+import type { AccountSettings } from "@/shared/types/settings";
+import type { TradeInput } from "@/shared/types/trade";
+import { getInstrument, normalizeSymbol } from "@/shared/instruments";
+import { calculateRisk } from "@/risk/calculations";
+import { resolveConversion, type QuoteLookup } from "@/risk/conversion";
+import { checkAccountLimits, computeLimits } from "@/risk/limits";
+import { validateTrade } from "@/risk/validation";
 
 export interface RiskEngineInput {
   trade: TradeInput;

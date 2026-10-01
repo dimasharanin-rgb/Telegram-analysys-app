@@ -1,7 +1,7 @@
-import type { TradeContext } from "@/types/analysis";
-import type { MarketPrice } from "@/types/market";
-import type { TimeframeAnalysis } from "@/types/technical";
-import type { TradeInput } from "@/types/trade";
+import type { TradeContext } from "@/shared/types/analysis";
+import type { Quote } from "@/shared/types/market";
+import type { TimeframeAnalysis } from "@/shared/types/technical";
+import type { TradeInput } from "@/shared/types/trade";
 
 const AT_MARKET_ATR = 0.25;
 const MAX_LEVELS_BETWEEN = 6;
@@ -13,7 +13,7 @@ const MAX_LEVELS_BETWEEN = 6;
  */
 export function buildTradeContext(
   trade: TradeInput,
-  price: MarketPrice,
+  price: Quote,
   timeframes: TimeframeAnalysis[],
 ): TradeContext {
   const long = trade.direction === "LONG";
@@ -21,7 +21,7 @@ export function buildTradeContext(
   const atr = own?.indicators.atr14 ?? null;
   const inAtr = (d: number) => (atr !== null && atr > 0 ? Math.abs(d) / atr : null);
 
-  const entryOffset = trade.entry - price.price;
+  const entryOffset = trade.entry - price.mid;
   const entryDistanceAtr = inAtr(entryOffset);
   const entryRelation =
     entryDistanceAtr !== null && entryDistanceAtr < AT_MARKET_ATR

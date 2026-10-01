@@ -2,9 +2,9 @@ import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import express from "express";
-import { createApp } from "./app";
-import { loadConfig } from "./config";
-import { createServices } from "./container";
+import { createApp } from "@/server/app";
+import { loadConfig } from "@/server/config";
+import { createServices } from "@/server/container";
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -31,7 +31,7 @@ async function main(): Promise<void> {
   server.listen(config.port, config.host, () => {
     const url = `http://${config.host === "0.0.0.0" ? "localhost" : config.host}:${config.port}`;
     console.log(`\n  FX Trade Analyzer running at ${url}`);
-    console.log(`  Market data: ${services.market.name}${services.market.isMock ? " (mock)" : ""}`);
+    console.log(`  Data mode:   ${services.market.mode}${services.market.mode === "LIVE" && !services.market.liveConfigured ? " — LIVE DATA UNAVAILABLE (TWELVE_DATA_API_KEY not set)" : ""}`);
     console.log(`  AI analyst:  ${services.analyst.provider === "mock" ? "MOCK rules (set ANTHROPIC_API_KEY to use Claude)" : services.analyst.model}`);
     console.log("  Trade execution: none (analysis only)\n");
   });

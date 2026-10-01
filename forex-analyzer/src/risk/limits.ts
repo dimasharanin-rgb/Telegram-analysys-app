@@ -1,10 +1,10 @@
-import type { InstrumentSpec } from "@/types/instrument";
-import type { AccountLimitsSnapshot, AccountState, RiskCalculation, RiskCheck } from "@/types/risk";
-import type { AccountSettings } from "@/types/settings";
-import type { TradeInput } from "@/types/trade";
-import { formatMoney, formatPct } from "@/lib/format";
-import { gte, isMultipleOf, lte, round } from "@/lib/math";
-import { activeSessions, SESSION_WINDOWS_UTC } from "@/lib/sessions";
+import type { InstrumentSpec } from "@/shared/types/instrument";
+import type { AccountLimitsSnapshot, AccountState, RiskCalculation, RiskCheck } from "@/shared/types/risk";
+import type { AccountSettings } from "@/shared/types/settings";
+import type { TradeInput } from "@/shared/types/trade";
+import { formatMoney, formatPct } from "@/shared/format";
+import { gte, isMultipleOf, lte, round } from "@/shared/math";
+import { activeSessions, SESSION_WINDOWS_UTC } from "@/shared/sessions";
 
 /** Share of the remaining daily/total allowance above which a trade earns a WARNING. */
 export const ALLOWANCE_WARNING_SHARE = 0.5;
@@ -20,8 +20,9 @@ export function computeLimits(settings: AccountSettings, account: AccountState):
   const drawdownLimit = (ddBasis * settings.maxDrawdownPct) / 100;
   const drawdownFloor = ddBasis - drawdownLimit;
 
-  // Open positions are assumed to lose their full risk: the worst case the limits must survive.
-  const worstCaseEquity = account.balance - account.openRisk;
+  // Measured on equity (floating P/L included), and open positions are assumed
+  // to lose their full remaining risk: the worst case the limits must survive.
+  const worstCaseEquity = account.equity - account.openRisk;
 
   return {
     dailyLossLimit: round(dailyLossLimit, 2),
