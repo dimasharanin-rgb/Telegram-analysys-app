@@ -1,4 +1,4 @@
-import type { MarketCheck, MarketSnapshot, TradeContext } from "@/shared/types/analysis";
+import type { MarketCheck, AnalysisSnapshot, TradeContext } from "@/shared/types/analysis";
 import type { InstrumentSpec } from "@/shared/types/instrument";
 import type { RiskCalculation, RiskReport } from "@/shared/types/risk";
 import type { StructureBias, TimeframeAnalysis } from "@/shared/types/technical";
@@ -82,7 +82,7 @@ export interface BuildPayloadInput {
   instrument: InstrumentSpec;
   risk: RiskReport;
   calculation: RiskCalculation;
-  market: MarketSnapshot;
+  market: AnalysisSnapshot;
   context: TradeContext;
   marketChecks: MarketCheck[];
 }

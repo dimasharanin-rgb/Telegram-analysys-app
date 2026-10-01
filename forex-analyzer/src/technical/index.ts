@@ -2,3 +2,4 @@ export { ema, rsi, atr, trueRange, calculateIndicators, volatilityRegime } from 
 export { findSwings, analyzeMarketStructure } from "@/technical/structure";
 export { findLevels } from "@/technical/levels";
 export { analyzeTimeframe, emaTrend, analysisTimeframes } from "@/technical/analyze";
+export { buildAnalysisSnapshot } from "./snapshot";

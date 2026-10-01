@@ -27,7 +27,7 @@ const errorBody = z.object({ status: z.literal("error"), code: z.number().option
 const timeSeriesBody = z
   .object({
     meta: z.object({ symbol: z.string().optional(), interval: z.string().optional(), exchange_timezone: z.string().optional() }).loose().optional(),
-    values: z.array(z.object({ datetime: z.string(), open: num, high: num, low: num, close: num }).loose()),
+    values: z.array(z.object({ datetime: z.string(), open: num, high: num, low: num, close: num, volume: num.optional() }).loose()),
     status: z.string().optional(),
   })
   .loose();
@@ -92,6 +92,7 @@ export function parseTimeSeries(body: unknown): Candle[] {
     high: v.high,
     low: v.low,
     close: v.close,
+    ...(v.volume !== undefined && Number.isFinite(v.volume) && v.volume > 0 ? { volume: v.volume } : {}),
   }));
   if (!candles.every((c) => [c.open, c.high, c.low, c.close].every((x) => Number.isFinite(x) && x > 0))) {
     throw new MarketDataError("BAD_RESPONSE", "Twelve Data candles contain invalid prices.");

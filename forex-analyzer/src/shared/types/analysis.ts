@@ -37,7 +37,27 @@ export interface TradeContext {
   spreadToStopRatio: number | null;
 }
 
-export interface MarketSnapshot {
+/**
+ * Market state at one moment `asOf`: the latest quote, the candles that were
+ * known at that time, and the deterministic analysis of them. Plain data
+ * (numbers in unix ms), so it can be stored, replayed and compared, which a
+ * future backtest needs. Built by technical/snapshot.ts.
+ */
+export interface AnalysisSnapshot {
+  symbol: string;
+  /** The moment this snapshot describes (unix ms). Nothing in it is from after this time. */
+  asOf: number;
+  metadata: {
+    /** Provider id ("twelvedata", "mock"). */
+    source: string;
+    sourceName: string;
+    mode: "LIVE" | "MOCK";
+    /** When the server retrieved the data (unix ms). */
+    retrievedAt: number;
+    /** When the newest price in it was produced by the market (unix ms). */
+    dataTimestamp: number;
+  };
+  /** Same as metadata.source (kept for stored journal entries). */
   provider: string;
   providerName: string;
   isMock: boolean;
@@ -71,7 +91,7 @@ export interface AnalysisResult {
   trade: TradeInput;
   state: AnalysisState;
   risk: RiskReport;
-  market: MarketSnapshot | null;
+  market: AnalysisSnapshot | null;
   marketChecks: MarketCheck[];
   context: TradeContext | null;
   ai: { info: AiRunInfo; assessment: AiAssessment } | null;

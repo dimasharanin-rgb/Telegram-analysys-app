@@ -88,6 +88,22 @@ Everything else depends on the `MarketDataProvider` interface (`getQuote`, `getC
 - `usage.ts`: request, error, cache and stream counters, shown in **Developer Mode** (Settings) at the bottom of
   the screen.
 
+### From market data to analysis
+
+```
+MarketDataProvider (Twelve Data | mock)      src/data/twelvedata, src/data/mock
+        ↓  normalised Quote / Candle (+ MarketDataMetadata: symbol, timeframe, retrievedAt, source)
+collectMarketData()  → MarketDataSnapshot    src/data/collect.ts      (fetch only)
+        ↓  validated: stale, too short, inconsistent → ANALYSIS UNAVAILABLE
+buildAnalysisSnapshot(data, asOf)            src/technical/snapshot.ts (pure; no I/O, no AI)
+        ↓  AnalysisSnapshot: market state at asOf, plain serialisable data
+risk engine → Claude payload → verdict → journal
+```
+
+`buildAnalysisSnapshot` only uses candles known at `asOf` (`candlesKnownAt` in `src/shared/candleTime.ts`), and every
+indicator only looks backwards. Live analysis keeps the bar still forming at `asOf`; a historical replay must pass
+`includeFormingCandle: false`, because a stored bar's OHLC contains prices from after `asOf`.
+
 The browser receives prices through a server-sent-events endpoint (`/api/stream?symbol=EUR/USD`). The server holds
 the one upstream WebSocket and fans prices out. Live prices only update the screen; they never trigger an AI call.
 

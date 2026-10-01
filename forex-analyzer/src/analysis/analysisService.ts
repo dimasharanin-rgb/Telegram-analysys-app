@@ -1,12 +1,12 @@
-import type { AnalysisResult, MarketSnapshot, UnavailableReason } from "@/shared/types/analysis";
-import type { Candle } from "@/shared/types/market";
+import type { AnalysisResult, AnalysisSnapshot, UnavailableReason } from "@/shared/types/analysis";
+import type { MarketDataSnapshot } from "@/shared/types/market";
 import type { AccountState, RiskReport } from "@/shared/types/risk";
 import type { AccountSettings } from "@/shared/types/settings";
-import type { TimeframeAnalysis } from "@/shared/types/technical";
-import type { Timeframe, TradeInput } from "@/shared/types/trade";
+import type { TradeInput } from "@/shared/types/trade";
 import { getInstrument, normalizeSymbol } from "@/shared/instruments";
 import { conversionSymbols, runRiskEngine } from "@/risk";
-import { analysisTimeframes, analyzeTimeframe } from "@/technical";
+import { analysisTimeframes, buildAnalysisSnapshot } from "@/technical";
+import { collectMarketData } from "@/data/collect";
 import { buildTradeContext } from "@/technical/tradeContext";
 import type { TradeAnalyst } from "@/ai/analyst";
 import { AiError } from "@/ai/errors";
@@ -78,51 +78,39 @@ function marketUnavailable(code: string, message: string): UnavailableError {
   return new UnavailableError({ stage: "MARKET_DATA", code, message: `Market data could not be verified. ${message}` });
 }
 
-async function loadMarket(trade: TradeInput, deps: AnalysisDeps, now: Date): Promise<MarketSnapshot> {
+/**
+ * Market data for an analysis, in three separate steps:
+ *   1. collect normalised data from the provider (data layer),
+ *   2. reject data that is stale, too short or inconsistent,
+ *   3. build the analysed snapshot of market state at `now` (technical layer).
+ */
+async function loadMarket(trade: TradeInput, deps: AnalysisDeps, now: Date): Promise<AnalysisSnapshot> {
   const { market } = deps;
   const timeframes = analysisTimeframes(trade.timeframe).filter((tf) => market.supportsTimeframe(tf));
   if (!timeframes.includes(trade.timeframe)) {
     throw marketUnavailable("UNSUPPORTED_TIMEFRAME", `${market.name} does not provide ${trade.timeframe} candles.`);
   }
 
-  let price;
-  let series: Candle[][];
+  let data: MarketDataSnapshot;
   try {
-    [price, series] = await Promise.all([
-      market.getQuote(trade.pair),
-      Promise.all(timeframes.map((tf) => market.getCandles(trade.pair, tf, CANDLE_LIMIT))),
-    ]);
+    data = await collectMarketData(market, trade.pair, { timeframes, candles: CANDLE_LIMIT, maxAgeSeconds: deps.maxQuoteAgeSeconds, now: () => now.getTime() });
   } catch (error) {
     if (error instanceof MarketDataError) throw marketUnavailable(error.code, error.message);
     throw marketUnavailable("UNAVAILABLE", "The market data provider failed.");
   }
 
-  const stale = quoteProblem(price, now.getTime(), deps.maxQuoteAgeSeconds);
+  const stale = quoteProblem(data.quote, now.getTime(), deps.maxQuoteAgeSeconds);
   if (stale) throw marketUnavailable("STALE_QUOTE", stale);
-
-  const analyses: TimeframeAnalysis[] = [];
-  const candles: Partial<Record<Timeframe, Candle[]>> = {};
-  for (const [i, tf] of timeframes.entries()) {
-    const list = series[i]!;
-    const problem = candleProblem(list, tf, now.getTime(), tf === trade.timeframe ? MIN_CANDLES_TRADE_TF : MIN_CANDLES_CONTEXT_TF);
+  for (const tf of timeframes) {
+    const problem = candleProblem(data.candles[tf] ?? [], tf, now.getTime(), tf === trade.timeframe ? MIN_CANDLES_TRADE_TF : MIN_CANDLES_CONTEXT_TF);
     if (problem) throw marketUnavailable("BAD_CANDLES", problem);
-    analyses.push(analyzeTimeframe(tf, list));
-    candles[tf] = list;
   }
 
-  const own = analyses.find((a) => a.timeframe === trade.timeframe)!;
-  const mismatch = quoteMatchesCandles(price, candles[trade.timeframe]!, own.indicators.atr14);
+  const snapshot = buildAnalysisSnapshot(data, now.getTime());
+  const own = snapshot.timeframes.find((a) => a.timeframe === trade.timeframe)!;
+  const mismatch = quoteMatchesCandles(snapshot.price, snapshot.candles[trade.timeframe]!, own.indicators.atr14);
   if (mismatch) throw marketUnavailable("INCONSISTENT", mismatch);
-
-  return {
-    provider: market.id,
-    providerName: market.name,
-    isMock: market.mode === "MOCK",
-    fetchedAt: now.getTime(),
-    price,
-    timeframes: analyses,
-    candles,
-  };
+  return snapshot;
 }
 
 /**
@@ -162,7 +150,7 @@ export async function analyzeTrade(input: TradeInput, deps: AnalysisDeps): Promi
   }
 
   const instrument = getInstrument(trade.pair)!;
-  let market: MarketSnapshot | null = null;
+  let market: AnalysisSnapshot | null = null;
   let unavailable: UnavailableReason | null = null;
   let ai: AnalysisResult["ai"] = null;
   let context: AnalysisResult["context"] = null;

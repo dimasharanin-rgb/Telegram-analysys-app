@@ -1,8 +1,8 @@
-import type { Candle, DataMode, Instrument, MarketDataSnapshot, Quote, StreamStatus } from "@/shared/types/market";
-import { PRIMARY_TIMEFRAMES, type Timeframe } from "@/shared/types/trade";
+import type { Candle, DataMode, Instrument, MarketDataMetadata, MarketDataSnapshot, Quote, StreamStatus } from "@/shared/types/market";
+import type { Timeframe } from "@/shared/types/trade";
 import { getInstrument, normalizeSymbol } from "@/shared/instruments";
 import { applyQuoteToCandles, CandleCache } from "./candleCache";
-import { candleProblem, quoteProblem } from "./freshness";
+import { collectMarketData } from "./collect";
 import { MarketDataError, type MarketDataProvider, type PriceStream } from "./types";
 import type { UsageTracker } from "./usage";
 
@@ -32,8 +32,7 @@ interface Watcher {
   onStatus: (s: StreamStatus) => void;
 }
 
-/** Candles fetched per timeframe: enough for EMA 200 plus margin. */
-export const SNAPSHOT_CANDLES = 260;
+export { SNAPSHOT_CANDLES } from "./collect";
 
 /**
  * The single entry point to market data for the rest of the application.
@@ -138,7 +137,8 @@ export class MarketDataService implements MarketDataProvider {
     const result = await this.cache().get(provider, symbol, interval, outputSize);
     const streamed = stream.latest(symbol);
     const candles = streamed ? applyQuoteToCandles(result.candles, streamed, interval) : result.candles;
-    return { candles, info: result.info };
+    const metadata: MarketDataMetadata = { symbol, timeframe: interval, retrievedAt: result.info.fetchedAt, source: provider.id };
+    return { candles, info: result.info, metadata };
   }
 
   async searchSymbols(query: string): Promise<Instrument[]> {
@@ -147,44 +147,11 @@ export class MarketDataService implements MarketDataProvider {
 
   /**
    * One coherent view: the latest price plus candles for the primary timeframes,
-   * stamped with when the data was produced and when it was retrieved, and
-   * flagged STALE if anything is older than the threshold.
+   * stamped with source and retrieval time and flagged STALE if anything is too old.
+   * Goes through this service, so the cache and live stream are used.
    */
   async snapshot(raw: string, opts: { maxAgeSeconds: number; timeframes?: readonly Timeframe[]; candles?: number }): Promise<MarketDataSnapshot> {
-    const symbol = this.checkSymbol(raw);
-    const timeframes = (opts.timeframes ?? PRIMARY_TIMEFRAMES).filter((tf) => this.supportsTimeframe(tf));
-    const count = opts.candles ?? SNAPSHOT_CANDLES;
-    const [quote, ...series] = await Promise.all([
-      this.getQuote(symbol),
-      ...timeframes.map((tf) => this.getCandlesWithInfo(symbol, tf, count)),
-    ]);
-    const now = this.now();
-    const candles: MarketDataSnapshot["candles"] = {};
-    const cache: MarketDataSnapshot["cache"] = {};
-    const staleReasons: string[] = [];
-    const q = quote as Quote;
-    const quoteIssue = quoteProblem(q, now, opts.maxAgeSeconds);
-    if (quoteIssue) staleReasons.push(quoteIssue);
-    timeframes.forEach((tf, i) => {
-      const s = series[i] as Awaited<ReturnType<MarketDataService["getCandlesWithInfo"]>>;
-      candles[tf] = s.candles;
-      cache[tf] = s.info;
-      const issue = candleProblem(s.candles, tf, now, 1);
-      if (issue) staleReasons.push(issue);
-    });
-    const newestCandle = Math.max(...Object.values(candles).map((c) => c?.at(-1)?.timestamp ?? 0));
-    return {
-      symbol,
-      mode: this.modeValue,
-      sourceName: this.name,
-      quote: q,
-      candles,
-      dataTimestamp: Math.max(q.timestamp, newestCandle),
-      retrievedAt: now,
-      stale: staleReasons.length > 0,
-      staleReasons,
-      cache,
-    };
+    return collectMarketData(this, this.checkSymbol(raw), { ...opts, now: this.now });
   }
 
   // --- live price distribution to the UI ---

@@ -9,6 +9,18 @@ export interface Candle {
   high: number;
   low: number;
   close: number;
+  /** Not reported for most Forex feeds. */
+  volume?: number;
+}
+
+/** Where a piece of market data came from and when this server obtained it. */
+export interface MarketDataMetadata {
+  symbol: string;
+  timeframe?: Timeframe;
+  /** When this server retrieved the data (unix ms). */
+  retrievedAt: number;
+  /** Provider id, e.g. "twelvedata" or "mock". */
+  source: string;
 }
 
 export type QuoteSource = "twelvedata-ws" | "twelvedata-rest" | "mock";
@@ -60,10 +72,18 @@ export interface CandleCacheInfo {
   fromCache: boolean;
 }
 
+/** Candles plus where and when they came from. */
+export interface CandleSeries {
+  candles: Candle[];
+  metadata: MarketDataMetadata;
+}
+
 /** One coherent view of the market at the moment it was assembled. */
 export interface MarketDataSnapshot {
   symbol: string;
   mode: DataMode;
+  /** Provider id ("twelvedata", "mock"). */
+  source: string;
   sourceName: string;
   quote: Quote;
   candles: Partial<Record<Timeframe, Candle[]>>;
@@ -73,5 +93,6 @@ export interface MarketDataSnapshot {
   retrievedAt: number;
   stale: boolean;
   staleReasons: string[];
-  cache: Partial<Record<Timeframe, CandleCacheInfo>>;
+  /** Present when the data went through the candle cache. */
+  cache?: Partial<Record<Timeframe, CandleCacheInfo>>;
 }

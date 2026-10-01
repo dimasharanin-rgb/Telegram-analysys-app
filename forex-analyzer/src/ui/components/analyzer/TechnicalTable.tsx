@@ -1,4 +1,4 @@
-import type { MarketCheck, MarketSnapshot } from "@/shared/types/analysis";
+import type { MarketCheck, AnalysisSnapshot } from "@/shared/types/analysis";
 import type { InstrumentSpec } from "@/shared/types/instrument";
 import type { StructureBias } from "@/shared/types/technical";
 import { formatPrice } from "@/shared/instruments";
@@ -13,7 +13,7 @@ const BIAS_COLOR: Record<StructureBias, string> = {
 };
 
 /** Deterministic multi-timeframe metrics that were given to the AI. */
-export function TechnicalTable({ market, checks, instrument }: { market: MarketSnapshot; checks: MarketCheck[]; instrument: InstrumentSpec | undefined }) {
+export function TechnicalTable({ market, checks, instrument }: { market: AnalysisSnapshot; checks: MarketCheck[]; instrument: InstrumentSpec | undefined }) {
   const px = (v: number | null) => (v === null ? "—" : formatPrice(v, instrument));
   const spreadPips = market.price.spread !== null && instrument ? (market.price.spread / instrument.pipSize).toFixed(1) : null;
   return (

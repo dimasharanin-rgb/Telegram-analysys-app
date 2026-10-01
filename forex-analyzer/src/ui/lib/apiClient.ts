@@ -1,7 +1,7 @@
 import type { AnalysisResult } from "@/shared/types/analysis";
 import type { DashboardData } from "@/shared/types/dashboard";
 import type { JournalEntry, JournalFilters, JournalSummary, OutcomeUpdate } from "@/shared/types/journal";
-import type { Candle, CandleCacheInfo, Instrument, MarketDataSnapshot, Quote, StreamStatus } from "@/shared/types/market";
+import type { Candle, CandleCacheInfo, Instrument, MarketDataMetadata, MarketDataSnapshot, Quote, StreamStatus } from "@/shared/types/market";
 import type { Timeframe } from "@/shared/types/trade";
 import type { UsageSnapshot } from "@/shared/types/usage";
 import type { AccountLimitsSnapshot, AccountState, RiskReport } from "@/shared/types/risk";
@@ -63,7 +63,7 @@ export const api = {
   analyze: (trade: TradeInput) => request<AnalysisResult>("POST", "/analyze", trade),
   quote: (symbol: string) => request<Quote>("GET", `/market/quote${query({ symbol })}`),
   candles: (symbol: string, timeframe: Timeframe, limit = 300) =>
-    request<{ candles: Candle[]; info: CandleCacheInfo; retrievedAt: number }>("GET", `/market/candles${query({ symbol, timeframe, limit })}`),
+    request<{ candles: Candle[]; info: CandleCacheInfo; metadata: MarketDataMetadata; retrievedAt: number }>("GET", `/market/candles${query({ symbol, timeframe, limit })}`),
   snapshot: (symbol: string) => request<MarketDataSnapshot>("GET", `/market/snapshot${query({ symbol })}`),
   searchSymbols: (q: string) => request<Instrument[]>("GET", `/market/search${query({ q })}`),
   devUsage: () => request<{ usage: UsageSnapshot; stream: StreamStatus; dataMode: string }>("GET", "/dev/usage"),
