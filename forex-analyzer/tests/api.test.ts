@@ -188,3 +188,41 @@ describe("LIVE mode", () => {
     }
   });
 });
+
+describe("deterministic scan endpoint", () => {
+  it("scans without ever calling the AI analyst, and serves market context", async () => {
+    let aiCalls = 0;
+    const spy = { provider: "anthropic" as const, model: "spy", analyze: async () => { aiCalls++; throw new Error("must not be called"); } };
+    const NOW2 = new Date("2026-09-30T11:00:00Z");
+    const m = new MockMarketDataProvider({ now: () => NOW2 });
+    const services = createServices(loadConfig([], {}), {
+      db: openDatabase(":memory:"),
+      analyst: spy,
+      now: () => NOW2,
+      market: new MarketDataService({ live: null, liveUnavailableReason: "test", mock: { provider: m, stream: new MockPriceStream(m) }, mode: "MOCK", usage: new UsageTracker(), now: () => NOW2.getTime() }),
+    });
+    const srv = createApp(services).listen(0);
+    await new Promise<void>((r) => srv.once("listening", () => r()));
+    const url = `http://127.0.0.1:${(srv.address() as AddressInfo).port}/api`;
+    try {
+      const res = await fetch(url + "/scan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ symbols: ["EUR/USD", "usdjpy"], timeframes: ["M15", "H1"] }) });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.symbols.map((s: { symbol: string }) => s.symbol)).toEqual(["EUR/USD", "USD/JPY"]);
+      expect(Array.isArray(body.candidates)).toBe(true);
+      expect(aiCalls).toBe(0);
+      expect(services.usage.snapshot().claude.requests).toBe(0);
+
+      const bad = await fetch(url + "/scan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ symbols: ["EUR/USD"], config: { stopLoss: 1 } }) });
+      expect(bad.status).toBe(400);
+
+      const ctx = await (await fetch(url + "/market/context?symbol=EUR/USD")).json();
+      expect(ctx.timeframes.map((t: { timeframe: string }) => t.timeframe)).toEqual(["H4", "H1", "M15", "M5"]);
+      expect(ctx.timeframes[0]).toHaveProperty("trend.direction");
+      expect(ctx.timeframes[0]).not.toHaveProperty("candles");
+      expect(aiCalls).toBe(0);
+    } finally {
+      srv.close();
+    }
+  });
+});

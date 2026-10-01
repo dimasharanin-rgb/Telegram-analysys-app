@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const SRC = fileURLToPath(new URL("../src", import.meta.url));
-const SERVER_ONLY = ["data", "ai", "journal", "analysis", "server"].map((d) => join(SRC, d));
+const SERVER_ONLY = ["data", "ai", "journal", "analysis", "server", "scanner"].map((d) => join(SRC, d));
 
 function resolveImport(from: string, spec: string): string | null {
   let base: string;

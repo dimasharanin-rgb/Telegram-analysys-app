@@ -5,8 +5,8 @@ import { calculateIndicators } from "@/technical/indicators";
 import { findLevels } from "@/technical/levels";
 import { analyzeMarketStructure } from "@/technical/structure";
 
-/** Candles of history used for swings, levels and structure (indicators use the full series). */
-const STRUCTURE_WINDOW = 150;
+import { DEFAULT_TECHNICAL_CONFIG, type TechnicalConfig } from "./config";
+import { momentumState, trendState, volatilityState } from "./state";
 
 export function emaTrend(ind: IndicatorSet): TimeframeAnalysis["emaTrend"] {
   const { ema20, ema50, ema200 } = ind;
@@ -16,11 +16,17 @@ export function emaTrend(ind: IndicatorSet): TimeframeAnalysis["emaTrend"] {
   return "MIXED";
 }
 
-export function analyzeTimeframe(timeframe: Timeframe, candles: Candle[]): TimeframeAnalysis {
-  const indicators = calculateIndicators(candles);
-  const window = candles.slice(-STRUCTURE_WINDOW);
-  const structure = analyzeMarketStructure(window);
-  const levels = findLevels(structure.swings, indicators.lastClose, indicators.atr14);
+/**
+ * Every deterministic fact about one timeframe, from one candle series (oldest
+ * first, ending at the moment being described). Indicators, structure, levels
+ * and the trend/momentum/volatility states are all computed from these candles;
+ * nothing is fetched and nothing looks past the last candle.
+ */
+export function analyzeTimeframe(timeframe: Timeframe, candles: Candle[], config: TechnicalConfig = DEFAULT_TECHNICAL_CONFIG): TimeframeAnalysis {
+  const indicators = calculateIndicators(candles, config);
+  const window = candles.slice(-config.structureWindow);
+  const structure = analyzeMarketStructure(window, config.swingLookback, (indicators.atr14 ?? 0) * config.equalSwingAtr);
+  const levels = findLevels(structure.swings, indicators.lastClose, indicators.atr14, config.levels);
   const recent = (kind: "HIGH" | "LOW") =>
     structure.swings
       .filter((s) => s.kind === kind)
@@ -38,6 +44,9 @@ export function analyzeTimeframe(timeframe: Timeframe, candles: Candle[]): Timef
     support: levels.support,
     resistance: levels.resistance,
     emaTrend: emaTrend(indicators),
+    trend: trendState(indicators),
+    momentum: momentumState(candles, indicators, config),
+    volatility: volatilityState(candles, indicators, config),
   };
 }
 

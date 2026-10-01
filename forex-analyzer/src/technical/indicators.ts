@@ -1,6 +1,7 @@
 import type { Candle } from "@/shared/types/market";
 import type { IndicatorSet, VolatilityRegime } from "@/shared/types/technical";
 import { median } from "@/shared/math";
+import { DEFAULT_TECHNICAL_CONFIG, type TechnicalConfig } from "./config";
 
 /** Exponential moving average seeded with the simple average of the first `period` values. */
 export function ema(values: number[], period: number): (number | null)[] {
@@ -62,16 +63,17 @@ export function atr(candles: Candle[], period = 14): (number | null)[] {
   return out;
 }
 
-const VOLATILITY_LOOKBACK = 100;
-
-/** Current ATR relative to its median over the lookback: below 0.75 is LOW, above 1.35 is HIGH. */
-export function volatilityRegime(atrSeries: (number | null)[]): { regime: VolatilityRegime; ratio: number | null } {
-  const recent = atrSeries.slice(-VOLATILITY_LOOKBACK).filter((v): v is number => v !== null);
+/** Current ATR relative to its median over the lookback, classified by the configured thresholds. */
+export function volatilityRegime(
+  atrSeries: (number | null)[],
+  config: TechnicalConfig["volatility"] = DEFAULT_TECHNICAL_CONFIG.volatility,
+): { regime: VolatilityRegime; ratio: number | null } {
+  const recent = atrSeries.slice(-config.lookbackBars).filter((v): v is number => v !== null);
   const current = atrSeries.at(-1) ?? null;
   const med = median(recent);
-  if (current === null || med === null || recent.length < 30 || med === 0) return { regime: "UNKNOWN", ratio: null };
+  if (current === null || med === null || recent.length < config.minimumHistory || med === 0) return { regime: "UNKNOWN", ratio: null };
   const ratio = current / med;
-  return { regime: ratio < 0.75 ? "LOW" : ratio > 1.35 ? "HIGH" : "NORMAL", ratio };
+  return { regime: ratio < config.low ? "LOW" : ratio > config.high ? "HIGH" : "NORMAL", ratio };
 }
 
 function last(series: (number | null)[]): number | null {
@@ -79,12 +81,12 @@ function last(series: (number | null)[]): number | null {
 }
 
 /** Objective indicator values at the latest candle. Null where history is too short to compute one. */
-export function calculateIndicators(candles: Candle[]): IndicatorSet {
+export function calculateIndicators(candles: Candle[], config: TechnicalConfig = DEFAULT_TECHNICAL_CONFIG): IndicatorSet {
   const closes = candles.map((c) => c.close);
   const atrSeries = atr(candles, 14);
   const atr14 = last(atrSeries);
   const lastClose = closes.at(-1) ?? Number.NaN;
-  const vol = volatilityRegime(atrSeries);
+  const vol = volatilityRegime(atrSeries, config.volatility);
   return {
     ema20: last(ema(closes, 20)),
     ema50: last(ema(closes, 50)),

@@ -1,4 +1,5 @@
-import type { AnalysisResult } from "@/shared/types/analysis";
+import type { AnalysisResult, AnalysisSnapshot } from "@/shared/types/analysis";
+import type { TimeframeAnalysis } from "@/shared/types/technical";
 import type { DashboardData } from "@/shared/types/dashboard";
 import type { JournalEntry, JournalFilters, JournalSummary, OutcomeUpdate } from "@/shared/types/journal";
 import type { Candle, CandleCacheInfo, Instrument, MarketDataMetadata, MarketDataSnapshot, Quote, StreamStatus } from "@/shared/types/market";
@@ -66,6 +67,11 @@ export const api = {
     request<{ candles: Candle[]; info: CandleCacheInfo; metadata: MarketDataMetadata; retrievedAt: number }>("GET", `/market/candles${query({ symbol, timeframe, limit })}`),
   snapshot: (symbol: string) => request<MarketDataSnapshot>("GET", `/market/snapshot${query({ symbol })}`),
   searchSymbols: (q: string) => request<Instrument[]>("GET", `/market/search${query({ q })}`),
+  marketContext: (symbol: string) =>
+    request<{ symbol: string; asOf: number; metadata: AnalysisSnapshot["metadata"]; stale: boolean; staleReasons: string[]; timeframes: TimeframeAnalysis[] }>(
+      "GET",
+      `/market/context${query({ symbol })}`,
+    ),
   devUsage: () => request<{ usage: UsageSnapshot; stream: StreamStatus; dataMode: string }>("GET", "/dev/usage"),
   journal: (filters: JournalFilters = {}) =>
     request<JournalSummary[]>("GET", `/journal${query(filters as Record<string, string | number | undefined>)}`),

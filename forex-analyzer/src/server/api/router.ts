@@ -6,6 +6,11 @@ import { computeLimits } from "@/risk";
 import { analyzeTrade, evaluateRisk } from "@/analysis/analysisService";
 import { MarketDataError, type MarketDataErrorCode } from "@/data/types";
 import { TIMEFRAMES } from "@/shared/types/trade";
+import { SETUP_TYPES } from "@/shared/types/setup";
+import { buildAnalysisSnapshot } from "@/technical/snapshot";
+import { scanMarket } from "@/scanner/scanService";
+import { setupConfig } from "@/setups";
+import { normalizeSymbol, getInstrument } from "@/shared/instruments";
 import { journalStats, scoreVsOutcome } from "@/journal/stats";
 import type { DashboardData } from "@/shared/types/dashboard";
 import type { Services } from "@/server/container";
@@ -17,6 +22,29 @@ const idParam = z.uuid();
  * JSON API. Everything that needs a secret (Claude, the market data key) runs
  * behind these routes; the browser only ever sees results.
  */
+const scanRequestSchema = z.object({
+  symbols: z
+    .array(z.string().transform(normalizeSymbol))
+    .min(1)
+    .max(20, "Scan at most 20 symbols at a time")
+    .refine((l) => l.every((s) => getInstrument(s)), "Unknown symbol")
+    .optional(),
+  timeframes: z.array(z.enum(TIMEFRAMES)).min(1).max(4).default(["M15", "H1"]),
+  config: z
+    .object({
+      allowedSetupTypes: z.array(z.enum(SETUP_TYPES)).min(1),
+      minimumAtrPercent: z.number().min(0).nullable(),
+      requireTrendAlignment: z.boolean(),
+      requireHigherTimeframeAgreement: z.boolean(),
+      maxDistanceFromLevelAtr: z.number().positive().max(10),
+      compressionMaxRangeAtr: z.number().positive().max(50),
+      minimumCompleteness: z.number().min(0).max(1),
+    })
+    .partial()
+    .strict()
+    .optional(),
+});
+
 const MARKET_HTTP_STATUS: Record<MarketDataErrorCode, number> = {
   INVALID_SYMBOL: 400,
   UNSUPPORTED_TIMEFRAME: 400,
@@ -129,6 +157,30 @@ export function createApiRouter(services: Services): Router {
       clearInterval(keepAlive);
       stop();
     });
+  });
+
+  /** Deterministic market context (no candles, no AI) for the analyzer's informational panel. */
+  router.get("/market/context", async (req, res) => {
+    const { symbol } = parseInput(symbolQuery, req.query);
+    const maxAgeSeconds = services.settings.get().freshnessThresholdSeconds;
+    const data = await market(() => services.market.snapshot(symbol, { maxAgeSeconds }));
+    const snap = buildAnalysisSnapshot(data, services.now().getTime());
+    res.json({ symbol: snap.symbol, asOf: snap.asOf, metadata: snap.metadata, stale: data.stale, staleReasons: data.staleReasons, timeframes: snap.timeframes });
+  });
+
+  /**
+   * One on-demand deterministic scan for setup candidates. Never calls Claude,
+   * never runs on a schedule, never places anything.
+   */
+  router.post("/scan", async (req, res) => {
+    const body = parseInput(scanRequestSchema, req.body ?? {});
+    const settings = services.settings.get();
+    const symbols = body.symbols ?? settings.allowedPairs;
+    const result = await scanMarket(
+      { symbols, timeframes: body.timeframes, config: setupConfig({ ...body.config, allowedTimeframes: body.timeframes }) },
+      { market: services.market, now: () => services.now().getTime(), maxAgeSeconds: settings.freshnessThresholdSeconds },
+    );
+    res.json(result);
   });
 
   router.get("/dev/usage", (_req, res) => {

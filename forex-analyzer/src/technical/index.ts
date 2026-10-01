@@ -3,3 +3,5 @@ export { findSwings, analyzeMarketStructure } from "@/technical/structure";
 export { findLevels } from "@/technical/levels";
 export { analyzeTimeframe, emaTrend, analysisTimeframes } from "@/technical/analyze";
 export { buildAnalysisSnapshot } from "./snapshot";
+export { DEFAULT_TECHNICAL_CONFIG, type TechnicalConfig } from "./config";
+export { classifyMomentum, momentumState, trendState, volatilityState } from "./state";

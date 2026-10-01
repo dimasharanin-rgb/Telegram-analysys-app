@@ -12,6 +12,7 @@ import { AnalysisResultView } from "@/ui/components/analyzer/AnalysisResultView"
 import { RiskPanel } from "@/ui/components/analyzer/RiskPanel";
 import { TradeForm } from "@/ui/components/analyzer/TradeForm";
 import { LiveChart } from "@/ui/components/market/LiveChart";
+import { MarketContext } from "@/ui/components/market/MarketContext";
 import { MarketHeader } from "@/ui/components/market/MarketHeader";
 import { Notice, Spinner } from "@/ui/components/ui/Notice";
 import { Panel } from "@/ui/components/ui/Panel";
@@ -94,6 +95,7 @@ export function AnalyzerPage() {
           onReset={reset}
         />
       </div>
+      <MarketContext />
       <RiskPanel report={trade ? preview.report : null} loading={preview.loading} error={preview.error} incomplete={!trade} />
 
       {analyzing && (

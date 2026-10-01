@@ -3,6 +3,7 @@ import type { Candle, MarketDataSnapshot } from "@/shared/types/market";
 import { TIMEFRAME_SECONDS, type Timeframe } from "@/shared/types/trade";
 import { candlesKnownAt } from "@/shared/candleTime";
 import { analyzeTimeframe } from "./analyze";
+import type { TechnicalConfig } from "./config";
 
 export interface BuildSnapshotOptions {
   /**
@@ -11,6 +12,7 @@ export interface BuildSnapshotOptions {
    * stored bar's OHLC includes prices from after `asOf`.
    */
   includeFormingCandle?: boolean;
+  config?: TechnicalConfig;
 }
 
 /**
@@ -41,7 +43,7 @@ export function buildAnalysisSnapshot(data: MarketDataSnapshot, asOf: number, op
     isMock: data.mode === "MOCK",
     fetchedAt: data.retrievedAt,
     price: data.quote,
-    timeframes: timeframes.map((tf) => analyzeTimeframe(tf, candles[tf]!)),
+    timeframes: timeframes.map((tf) => analyzeTimeframe(tf, candles[tf]!, opts.config)),
     candles,
   };
 }

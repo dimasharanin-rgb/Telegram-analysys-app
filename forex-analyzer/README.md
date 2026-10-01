@@ -194,6 +194,34 @@ None of these is treated as a signal. They are inputs to the assessment.
 3. Otherwise the AI's verdict, **capped at CAUTION** by any rule warning, a capping market check, or a score below your
    minimum setup score. Application rules can only lower the verdict, never raise it.
 
+## Deterministic setup detection (no AI)
+
+"Is there a technically interesting setup right now?". It never answers "should I take this trade?"; that stays with
+the user (and, later, Claude).
+
+```
+Twelve Data → MarketDataProvider → normalised candles (cached)
+  → technical engine (src/technical)  per timeframe: EMA 20/50/200, RSI 14, ATR 14, trend state, momentum class,
+                                       volatility class, swing structure (HH/HL/LH/LL → BULLISH/BEARISH/RANGE/UNCLEAR),
+                                       support/resistance zones (SWING or CLUSTER, with strength)
+  → AnalysisSnapshot (market state at asOf; nothing after it)
+  → setup detector (src/setups)        CONTINUATION, PULLBACK, BREAKOUT candidates with the conditions checked
+  → candidates                          unranked; an empty list is a normal result
+```
+
+- **Thresholds live in config.** `src/technical/config.ts` holds the RSI bands, volatility ratios, swing and level
+  settings. `src/setups/config.ts` holds the detector filters: allowed timeframes, setup types and symbols, minimum
+  ATR %, trend-alignment and higher-timeframe requirements, maximum distance from a level, and compression.
+- **A candidate is not a trade.** It carries reasons, invalidation conditions, the reference levels it saw (nearest
+  support/resistance, recent swings, ATR), the checklist of conditions, and `completeness`: the share of conditions
+  met. That is not a probability. It has no entry, stop, target or size.
+- **`POST /api/scan`** (`src/scanner/scanService.ts`) runs one on-demand scan, for example
+  `{"symbols":["EUR/USD","GBP/USD"],"timeframes":["M15","H1"]}`. Each symbol's candles are fetched once per timeframe
+  and reused for every calculation. Its dependencies do not include the AI analyst, so it cannot call Claude. There is
+  no background loop, schedule or notification.
+- **The Trade Analyzer** shows the same facts read-only in its **Market context** panel. Manual analyses use the same
+  engine.
+
 ## Journal and dashboard
 
 Every analysis is saved, blocked and unavailable ones included: inputs, risk figures, verdicts, AI reasoning and a

@@ -1,8 +1,6 @@
 import type { PriceLevel, SwingPoint } from "@/shared/types/technical";
 
-/** Swings closer together than this many ATRs are treated as the same level. */
-const CLUSTER_ATR = 0.35;
-const MAX_LEVELS = 3;
+import { DEFAULT_TECHNICAL_CONFIG, type TechnicalConfig } from "./config";
 
 /**
  * Support and resistance from swing points: nearby swing prices are clustered
@@ -13,8 +11,10 @@ export function findLevels(
   swings: SwingPoint[],
   currentPrice: number,
   atr: number | null,
+  config: TechnicalConfig["levels"] = DEFAULT_TECHNICAL_CONFIG.levels,
 ): { support: PriceLevel[]; resistance: PriceLevel[] } {
-  const tolerance = atr !== null && atr > 0 ? atr * CLUSTER_ATR : currentPrice * 0.0005;
+  const MAX_LEVELS = config.maxPerSide;
+  const tolerance = atr !== null && atr > 0 ? atr * config.clusterAtr : currentPrice * 0.0005;
   const prices = swings.map((s) => s.price).sort((a, b) => a - b);
 
   const clusters: number[][] = [];
@@ -33,6 +33,8 @@ export function findLevels(
     price: l.price,
     touches: l.touches,
     kind,
+    source: l.touches > 1 ? "CLUSTER" : "SWING",
+    strength: l.touches,
     distanceAtr: atr !== null && atr > 0 ? Math.abs(l.price - currentPrice) / atr : null,
   });
 
