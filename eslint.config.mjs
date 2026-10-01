@@ -8,6 +8,7 @@ const config = [
       "out/**",
       "coverage/**",
       "next-env.d.ts",
+      "forex-analyzer/**",
     ],
   },
   ...next,
